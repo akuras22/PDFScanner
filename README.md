@@ -8,6 +8,9 @@ Starter Android app that scans documents, auto-crops/enhances them (via ML Kit),
 - Automatic enhancement (color/contrast cleanup handled by scanner flow).
 - PDF output generation.
 - Save PDF to `Downloads/PDFScanner` on device.
+- Built-in `History` screen listing previously saved PDFs.
+- One-tap `Open` and `Delete` actions for every saved PDF.
+- One-tap `Share` action for every saved PDF.
 - Tablet-compatible adaptive UI (phone and tablet layouts).
 
 ## Tech Stack
@@ -48,6 +51,6 @@ Notes:
 ## Next Improvements
 
 - PDF list/history screen (load from app-indexed records).
-- Rename/share actions after save.
+- Rename actions after save.
 - Optional per-page image export.
 - UI tests and instrumentation tests.
