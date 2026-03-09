@@ -1,0 +1,26 @@
+[
+    {
+        "merged": "com.akuras.pdfscanner.app-debug-66:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "com.akuras.pdfscanner.app-main-68:/drawable/ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "com.akuras.pdfscanner.app-debug-66:/xml_data_extraction_rules.xml.flat",
+        "source": "com.akuras.pdfscanner.app-main-68:/xml/data_extraction_rules.xml"
+    },
+    {
+        "merged": "com.akuras.pdfscanner.app-debug-66:/drawable_ic_launcher_background.xml.flat",
+        "source": "com.akuras.pdfscanner.app-main-68:/drawable/ic_launcher_background.xml"
+    },
+    {
+        "merged": "com.akuras.pdfscanner.app-debug-66:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "com.akuras.pdfscanner.app-main-68:/mipmap-anydpi-v26/ic_launcher.xml"
+    },
+    {
+        "merged": "com.akuras.pdfscanner.app-debug-66:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "com.akuras.pdfscanner.app-main-68:/mipmap-anydpi-v26/ic_launcher_round.xml"
+    },
+    {
+        "merged": "com.akuras.pdfscanner.app-debug-66:/xml_backup_rules.xml.flat",
+        "source": "com.akuras.pdfscanner.app-main-68:/xml/backup_rules.xml"
+    }
+]
