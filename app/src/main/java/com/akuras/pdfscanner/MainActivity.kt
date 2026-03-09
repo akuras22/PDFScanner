@@ -46,7 +46,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -403,7 +403,7 @@ private fun PdfHistoryCard(item: SavedPdf, isWide: Boolean = false, onDeleted: (
                         onClick = { openPdf(context, item.uri) },
                         modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.Default.OpenInNew, contentDescription = "Open", modifier = Modifier.size(18.dp))
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open", modifier = Modifier.size(18.dp))
                     }
                     FilledTonalIconButton(
                         onClick = { sharePdf(context, item.uri, item.name) },
@@ -423,10 +423,6 @@ private fun PdfHistoryCard(item: SavedPdf, isWide: Boolean = false, onDeleted: (
                         )
                     }
                 }
-            }
-        }
-    }
-}
             }
         }
     }
