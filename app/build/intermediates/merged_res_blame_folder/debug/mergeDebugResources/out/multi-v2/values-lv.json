@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.akuras.pdfscanner.app-mergeDebugResources-64:/values-lv/values-lv.xml",
+            "outputFile": "com.akuras.pdfscanner.app-mergeDebugResources-65:/values-lv/values-lv.xml",
             "map": [
                 {
                     "source": "/home/jon/.gradle/caches/8.11.1/transforms/72fa5bfe58bc16dcbf0395fe80be85ed/transformed/foundation-release/res/values-lv/values-lv.xml",

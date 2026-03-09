@@ -32,6 +32,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.PDFScanner" >
         <activity
+            android:name="com.akuras.pdfscanner.SettingsActivity"
+            android:exported="false" />
+        <activity
             android:name="com.akuras.pdfscanner.MainActivity"
             android:exported="true" >
             <intent-filter>

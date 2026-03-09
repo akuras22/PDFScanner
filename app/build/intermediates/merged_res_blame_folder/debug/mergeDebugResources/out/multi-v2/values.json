@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.akuras.pdfscanner.app-mergeDebugResources-64:/values/values.xml",
+            "outputFile": "com.akuras.pdfscanner.app-mergeDebugResources-65:/values/values.xml",
             "map": [
                 {
                     "source": "/home/jon/.gradle/caches/8.11.1/transforms/952ec71e0fa90267ee89a182913dab02/transformed/coordinatorlayout-1.1.0/res/values/values.xml",

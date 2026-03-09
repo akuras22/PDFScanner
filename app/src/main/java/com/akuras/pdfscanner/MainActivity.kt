@@ -5,10 +5,13 @@ import android.content.Context
 import android.content.ContentUris
 import android.content.Intent
 import android.content.ActivityNotFoundException
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -16,12 +19,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,41 +36,46 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-
 import com.akuras.pdfscanner.ui.theme.PDFScannerTheme
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import java.io.IOException
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 
 class MainActivity : ComponentActivity() {
 
-    private var onScanResult: ((String) -> Unit)? = null
+    private var onScanComplete: (() -> Unit)? = null
 
     private val scannerLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -73,18 +84,17 @@ class MainActivity : ComponentActivity() {
         val pdfUri = scanningResult?.pdf?.uri
 
         if (pdfUri == null) {
-            onScanResult?.invoke("Scan cancelled")
             return@registerForActivityResult
         }
 
-        val saved = savePdfToDownloads(this, pdfUri)
+        val pattern = loadFileNamePattern(this)
+        val saved = savePdfToDownloads(this, pdfUri, pattern)
         if (saved != null) {
-            onScanResult?.invoke("Saved to Downloads/PDFScanner")
-            Toast.makeText(this, "Saved: $saved", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Saved to Downloads/PDFScanner", Toast.LENGTH_LONG).show()
         } else {
-            onScanResult?.invoke("Could not save PDF")
             Toast.makeText(this, "Unable to save PDF", Toast.LENGTH_LONG).show()
         }
+        onScanComplete?.invoke()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -93,13 +103,15 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             PDFScannerTheme {
-                var statusText by rememberSaveable { mutableStateOf("Tap Scan to start") }
-
-                onScanResult = { statusText = it }
+                var refreshTrigger by rememberSaveable { mutableIntStateOf(0) }
+                onScanComplete = { refreshTrigger++ }
 
                 ScannerScreen(
-                    statusText = statusText,
-                    onScanClick = { startScan() }
+                    refreshTrigger = refreshTrigger,
+                    onScanClick = { startScan() },
+                    onSettingsClick = {
+                        startActivity(Intent(this, SettingsActivity::class.java))
+                    }
                 )
             }
         }
@@ -119,7 +131,6 @@ class MainActivity : ComponentActivity() {
                 scannerLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
             }
             .addOnFailureListener {
-                onScanResult?.invoke("Scanner unavailable: ${it.localizedMessage}")
                 Toast.makeText(this, "Scanner unavailable", Toast.LENGTH_LONG).show()
             }
     }
@@ -127,8 +138,9 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun ScannerScreen(
-    statusText: String,
+    refreshTrigger: Int,
     onScanClick: () -> Unit,
+    onSettingsClick: () -> Unit,
 ) {
     val background = Brush.verticalGradient(
         colors = listOf(
@@ -139,22 +151,45 @@ private fun ScannerScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("PDF Scanner") })
+            TopAppBar(
+                title = { Text("PDF Scanner") },
+                actions = {
+                    IconButton(onClick = onSettingsClick) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    }
+                }
+            )
         },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = onScanClick,
+        bottomBar = {
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .navigationBarsPadding(),
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0f),
+                                MaterialTheme.colorScheme.surface
+                            )
+                        )
+                    )
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
+                    .navigationBarsPadding()
             ) {
-                Text("Scan Document", style = MaterialTheme.typography.titleMedium)
+                Button(
+                    onClick = onScanClick,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Text("Scan Document", style = MaterialTheme.typography.titleMedium)
+                }
             }
-        },
-        floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center
+        }
     ) { padding ->
         Box(
             modifier = Modifier
@@ -164,11 +199,7 @@ private fun ScannerScreen(
                 .padding(horizontal = 16.dp)
                 .padding(top = 8.dp)
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                StatusCard(statusText)
-                Spacer(modifier = Modifier.height(16.dp))
-                HistoryPanel(bottomPadding = 80.dp)
-            }
+            HistoryPanel(refreshTrigger = refreshTrigger)
         }
     }
 }
@@ -179,11 +210,11 @@ private data class SavedPdf(
 )
 
 @Composable
-private fun HistoryPanel(bottomPadding: androidx.compose.ui.unit.Dp = 0.dp) {
+private fun HistoryPanel(refreshTrigger: Int) {
     val context = LocalContext.current
     var items by remember { mutableStateOf(emptyList<SavedPdf>()) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(refreshTrigger) {
         items = querySavedPdfs(context)
     }
 
@@ -206,54 +237,11 @@ private fun HistoryPanel(bottomPadding: androidx.compose.ui.unit.Dp = 0.dp) {
         } else {
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottomPadding)
+                contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                items(items) { item ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = item.name,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = item.uri.toString(),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                OutlinedButton(onClick = { openPdf(context, item.uri) }) {
-                                    Text("Open")
-                                }
-                                OutlinedButton(
-                                    onClick = {
-                                        if (deletePdf(context, item.uri)) {
-                                            items = items.filterNot { it.uri == item.uri }
-                                            Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            Toast.makeText(context, "Delete failed", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                ) {
-                                    Text("Delete")
-                                }
-                                Button(onClick = { sharePdf(context, item.uri, item.name) }) {
-                                    Text("Share")
-                                }
-                            }
-                        }
+                items(items, key = { it.uri.toString() }) { item ->
+                    PdfHistoryCard(item) { deletedUri ->
+                        items = items.filterNot { it.uri == deletedUri }
                     }
                 }
             }
@@ -262,24 +250,101 @@ private fun HistoryPanel(bottomPadding: androidx.compose.ui.unit.Dp = 0.dp) {
 }
 
 @Composable
-private fun StatusCard(statusText: String) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .width(420.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = "Status", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = statusText)
+private fun PdfHistoryCard(item: SavedPdf, onDeleted: (Uri) -> Unit) {
+    val context = LocalContext.current
+    val thumbnail = remember(item.uri) { renderPdfThumbnail(context, item.uri) }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            // PDF thumbnail
+            Box(
+                modifier = Modifier
+                    .width(72.dp)
+                    .aspectRatio(0.707f) // A4 ratio
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                if (thumbnail != null) {
+                    Image(
+                        bitmap = thumbnail.asImageBitmap(),
+                        contentDescription = "PDF preview",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text("PDF", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.name,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { openPdf(context, item.uri) }) {
+                        Text("Open")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            if (deletePdf(context, item.uri)) {
+                                onDeleted(item.uri)
+                                Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Delete failed", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    ) {
+                        Text("Delete")
+                    }
+                    Button(onClick = { sharePdf(context, item.uri, item.name) }) {
+                        Text("Share")
+                    }
+                }
+            }
         }
     }
 }
 
-private fun savePdfToDownloads(context: Context, sourceUri: Uri): Uri? {
+private fun renderPdfThumbnail(context: Context, uri: Uri): Bitmap? {
+    return try {
+        val fd: ParcelFileDescriptor =
+            context.contentResolver.openFileDescriptor(uri, "r") ?: return null
+        val renderer = PdfRenderer(fd)
+        if (renderer.pageCount == 0) {
+            renderer.close()
+            fd.close()
+            return null
+        }
+        val page = renderer.openPage(0)
+        val width = 200
+        val height = (width * page.height.toFloat() / page.width).toInt()
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(android.graphics.Color.WHITE)
+        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+        page.close()
+        renderer.close()
+        fd.close()
+        bitmap
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun savePdfToDownloads(context: Context, sourceUri: Uri, pattern: String): Uri? {
     val resolver = context.contentResolver
-    val fileName = "scan_${timestamp()}.pdf"
+    val fileName = "${resolveFileName(pattern)}.pdf"
 
     val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
@@ -393,9 +458,4 @@ private fun deletePdf(context: Context, uri: Uri): Boolean {
     } catch (e: SecurityException) {
         false
     }
-}
-
-private fun timestamp(): String {
-    val formatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
-    return LocalDateTime.now().format(formatter)
 }
