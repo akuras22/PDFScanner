@@ -23,6 +23,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -33,15 +34,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,8 +69,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.akuras.pdfscanner.ui.theme.PDFScannerTheme
@@ -173,11 +181,13 @@ private fun ScannerScreen(
                         )
                     )
                     .padding(horizontal = 24.dp, vertical = 16.dp)
-                    .navigationBarsPadding()
+                    .navigationBarsPadding(),
+                contentAlignment = Alignment.Center
             ) {
                 Button(
                     onClick = onScanClick,
                     modifier = Modifier
+                        .widthIn(max = 500.dp)
                         .fillMaxWidth()
                         .height(56.dp),
                     shape = RoundedCornerShape(28.dp),
@@ -195,11 +205,16 @@ private fun ScannerScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(background)
-                .padding(padding)
-                .padding(horizontal = 16.dp)
-                .padding(top = 8.dp)
+                .padding(padding),
+            contentAlignment = Alignment.TopCenter
         ) {
-            HistoryPanel(refreshTrigger = refreshTrigger)
+            HistoryPanel(
+                refreshTrigger = refreshTrigger,
+                modifier = Modifier
+                    .widthIn(max = 900.dp)
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 8.dp)
+            )
         }
     }
 }
@@ -210,15 +225,18 @@ private data class SavedPdf(
 )
 
 @Composable
-private fun HistoryPanel(refreshTrigger: Int) {
+private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var items by remember { mutableStateOf(emptyList<SavedPdf>()) }
+    val config = LocalConfiguration.current
+    val isWide = config.screenWidthDp > 600
+    val columns = if (isWide) 2 else 1
 
     LaunchedEffect(refreshTrigger) {
         items = querySavedPdfs(context)
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = modifier.fillMaxSize()) {
         Text(
             text = "Saved PDFs",
             style = MaterialTheme.typography.headlineSmall,
@@ -227,20 +245,41 @@ private fun HistoryPanel(refreshTrigger: Int) {
         Spacer(modifier = Modifier.height(12.dp))
 
         if (items.isEmpty()) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("No files yet")
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text("Scan and save a document to see it here.")
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Default.Description,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "No scanned documents yet",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Tap Scan Document below to get started",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         } else {
-            LazyColumn(
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 items(items, key = { it.uri.toString() }) { item ->
-                    PdfHistoryCard(item) { deletedUri ->
+                    PdfHistoryCard(item, isWide = isWide) { deletedUri ->
                         items = items.filterNot { it.uri == deletedUri }
                     }
                 }
@@ -250,11 +289,15 @@ private fun HistoryPanel(refreshTrigger: Int) {
 }
 
 @Composable
-private fun PdfHistoryCard(item: SavedPdf, onDeleted: (Uri) -> Unit) {
+private fun PdfHistoryCard(item: SavedPdf, isWide: Boolean = false, onDeleted: (Uri) -> Unit) {
     val context = LocalContext.current
     val thumbnail = remember(item.uri) { renderPdfThumbnail(context, item.uri) }
+    val thumbnailWidth = if (isWide) 100.dp else 80.dp
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -264,9 +307,9 @@ private fun PdfHistoryCard(item: SavedPdf, onDeleted: (Uri) -> Unit) {
             // PDF thumbnail
             Box(
                 modifier = Modifier
-                    .width(72.dp)
+                    .width(thumbnailWidth)
                     .aspectRatio(0.707f) // A4 ratio
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
@@ -278,7 +321,12 @@ private fun PdfHistoryCard(item: SavedPdf, onDeleted: (Uri) -> Unit) {
                         contentScale = ContentScale.Crop
                     )
                 } else {
-                    Text("PDF", style = MaterialTheme.typography.labelSmall)
+                    Icon(
+                        Icons.Default.Description,
+                        contentDescription = null,
+                        modifier = Modifier.size(32.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    )
                 }
             }
 
@@ -287,13 +335,20 @@ private fun PdfHistoryCard(item: SavedPdf, onDeleted: (Uri) -> Unit) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = item.name,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { openPdf(context, item.uri) }) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedButton(
+                        onClick = { openPdf(context, item.uri) },
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Text("Open")
                     }
                     OutlinedButton(
@@ -304,11 +359,15 @@ private fun PdfHistoryCard(item: SavedPdf, onDeleted: (Uri) -> Unit) {
                             } else {
                                 Toast.makeText(context, "Delete failed", Toast.LENGTH_SHORT).show()
                             }
-                        }
+                        },
+                        modifier = Modifier.weight(1f)
                     ) {
                         Text("Delete")
                     }
-                    Button(onClick = { sharePdf(context, item.uri, item.name) }) {
+                    Button(
+                        onClick = { sharePdf(context, item.uri, item.name) },
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Text("Share")
                     }
                 }
@@ -328,7 +387,7 @@ private fun renderPdfThumbnail(context: Context, uri: Uri): Bitmap? {
             return null
         }
         val page = renderer.openPage(0)
-        val width = 200
+        val width = 300
         val height = (width * page.height.toFloat() / page.width).toInt()
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         bitmap.eraseColor(android.graphics.Color.WHITE)
