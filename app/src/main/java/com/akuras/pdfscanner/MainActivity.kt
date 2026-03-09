@@ -19,11 +19,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -42,19 +43,25 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -159,8 +166,13 @@ private fun ScannerScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("PDF Scanner") },
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        "PDF Scanner",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 actions = {
                     IconButton(onClick = onSettingsClick) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -196,6 +208,12 @@ private fun ScannerScreen(
                         contentColor = MaterialTheme.colorScheme.onPrimary
                     )
                 ) {
+                    Icon(
+                        Icons.Default.CameraAlt,
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text("Scan Document", style = MaterialTheme.typography.titleMedium)
                 }
             }
@@ -236,12 +254,19 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
         items = querySavedPdfs(context)
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(modifier = modifier.fillMaxSize().animateContentSize()) {
         Text(
             text = "Saved PDFs",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold
         )
+        if (items.isNotEmpty()) {
+            Text(
+                text = "${items.size} document${if (items.size != 1) "s" else ""}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Spacer(modifier = Modifier.height(12.dp))
 
         if (items.isEmpty()) {
@@ -276,7 +301,7 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
                 columns = GridCells.Fixed(columns),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 16.dp)
+                contentPadding = PaddingValues(bottom = 80.dp)
             ) {
                 items(items, key = { it.uri.toString() }) { item ->
                     PdfHistoryCard(item, isWide = isWide) { deletedUri ->
@@ -293,10 +318,40 @@ private fun PdfHistoryCard(item: SavedPdf, isWide: Boolean = false, onDeleted: (
     val context = LocalContext.current
     val thumbnail = remember(item.uri) { renderPdfThumbnail(context, item.uri) }
     val thumbnailWidth = if (isWide) 100.dp else 80.dp
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete document?") },
+            text = { Text("\"${item.name}\" will be permanently deleted.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    if (deletePdf(context, item.uri)) {
+                        onDeleted(item.uri)
+                        Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Delete failed", Toast.LENGTH_SHORT).show()
+                    }
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { openPdf(context, item.uri) },
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(16.dp)
     ) {
         Row(
             modifier = Modifier
@@ -342,35 +397,36 @@ private fun PdfHistoryCard(item: SavedPdf, isWide: Boolean = false, onDeleted: (
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    OutlinedButton(
+                    FilledTonalIconButton(
                         onClick = { openPdf(context, item.uri) },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.size(40.dp)
                     ) {
-                        Text("Open")
+                        Icon(Icons.Default.OpenInNew, contentDescription = "Open", modifier = Modifier.size(18.dp))
                     }
-                    OutlinedButton(
-                        onClick = {
-                            if (deletePdf(context, item.uri)) {
-                                onDeleted(item.uri)
-                                Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "Delete failed", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Delete")
-                    }
-                    Button(
+                    FilledTonalIconButton(
                         onClick = { sharePdf(context, item.uri, item.name) },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.size(40.dp)
                     ) {
-                        Text("Share")
+                        Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(18.dp))
+                    }
+                    FilledTonalIconButton(
+                        onClick = { showDeleteDialog = true },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.error
+                        )
                     }
                 }
+            }
+        }
+    }
+}
             }
         }
     }

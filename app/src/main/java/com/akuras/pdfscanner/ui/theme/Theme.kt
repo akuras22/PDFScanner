@@ -12,12 +12,19 @@ private val LightColors = lightColorScheme(
     secondary = Mint,
     background = Cream,
     surface = Cream,
-    onSurface = Slate
+    onSurface = Slate,
+    error = ErrorRed
 )
 
 private val DarkColors = darkColorScheme(
     primary = SkyBlue,
-    secondary = Mint
+    secondary = Mint,
+    surface = DarkSurface,
+    surfaceContainer = DarkSurfaceContainer,
+    surfaceVariant = DarkSurfaceVariant,
+    onSurface = DarkOnSurface,
+    onSurfaceVariant = DarkOnSurfaceVariant,
+    error = ErrorRed
 )
 
 @Composable
