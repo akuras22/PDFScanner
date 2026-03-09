@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,7 +33,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -52,8 +53,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
-import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
+
 import com.akuras.pdfscanner.ui.theme.PDFScannerTheme
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
@@ -93,17 +93,12 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             PDFScannerTheme {
-                val windowSizeClass = calculateWindowSizeClass(this)
                 var statusText by rememberSaveable { mutableStateOf("Tap Scan to start") }
-                var selectedTab by rememberSaveable { mutableStateOf(HomeTab.SCAN) }
 
                 onScanResult = { statusText = it }
 
                 ScannerScreen(
-                    isTablet = windowSizeClass.widthSizeClass != WindowWidthSizeClass.Compact,
                     statusText = statusText,
-                    selectedTab = selectedTab,
-                    onTabSelected = { selectedTab = it },
                     onScanClick = { startScan() }
                 )
             }
@@ -130,22 +125,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class HomeTab {
-    SCAN,
-    HISTORY,
-}
-
-private data class SavedPdf(
-    val name: String,
-    val uri: Uri,
-)
-
 @Composable
 private fun ScannerScreen(
-    isTablet: Boolean,
     statusText: String,
-    selectedTab: HomeTab,
-    onTabSelected: (HomeTab) -> Unit,
     onScanClick: () -> Unit,
 ) {
     val background = Brush.verticalGradient(
@@ -158,156 +140,46 @@ private fun ScannerScreen(
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("PDF Scanner") })
-        }
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = onScanClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .navigationBarsPadding(),
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
+                Text("Scan Document", style = MaterialTheme.typography.titleMedium)
+            }
+        },
+        floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center
     ) { padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(background)
                 .padding(padding)
-                .padding(16.dp)
+                .padding(horizontal = 16.dp)
+                .padding(top = 8.dp)
         ) {
-            if (isTablet) {
-                TabletLayout(
-                    statusText = statusText,
-                    selectedTab = selectedTab,
-                    onTabSelected = onTabSelected,
-                    onScanClick = onScanClick
-                )
-            } else {
-                PhoneLayout(
-                    statusText = statusText,
-                    selectedTab = selectedTab,
-                    onTabSelected = onTabSelected,
-                    onScanClick = onScanClick
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PhoneLayout(
-    statusText: String,
-    selectedTab: HomeTab,
-    onTabSelected: (HomeTab) -> Unit,
-    onScanClick: () -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TabButton(
-                label = "Scan",
-                selected = selectedTab == HomeTab.SCAN,
-                onClick = { onTabSelected(HomeTab.SCAN) }
-            )
-            TabButton(
-                label = "History",
-                selected = selectedTab == HomeTab.HISTORY,
-                onClick = { onTabSelected(HomeTab.HISTORY) }
-            )
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (selectedTab == HomeTab.SCAN) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "Scan docs into clean PDFs",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(12.dp))
+            Column(modifier = Modifier.fillMaxSize()) {
                 StatusCard(statusText)
-                Spacer(modifier = Modifier.height(20.dp))
-                Button(onClick = onScanClick) {
-                    Text("Scan Document")
-                }
-            }
-        } else {
-            HistoryPanel()
-        }
-    }
-}
-
-@Composable
-private fun TabletLayout(
-    statusText: String,
-    selectedTab: HomeTab,
-    onTabSelected: (HomeTab) -> Unit,
-    onScanClick: () -> Unit,
-) {
-    Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxSize(),
-            verticalArrangement = Arrangement.Top
-        ) {
-            Text(
-                text = "PDF Scanner",
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = "Auto-detect, crop, enhance, export, and share your documents.",
-                style = MaterialTheme.typography.bodyLarge
-            )
-            Spacer(modifier = Modifier.height(20.dp))
-
-            TabButton(
-                label = "Scan",
-                selected = selectedTab == HomeTab.SCAN,
-                onClick = { onTabSelected(HomeTab.SCAN) }
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            TabButton(
-                label = "History",
-                selected = selectedTab == HomeTab.HISTORY,
-                onClick = { onTabSelected(HomeTab.HISTORY) }
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-
-            if (selectedTab == HomeTab.SCAN) {
-                Button(onClick = onScanClick) {
-                    Text("Start New Scan")
-                }
-            }
-        }
-
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxSize(),
-            verticalArrangement = Arrangement.Top
-        ) {
-            if (selectedTab == HomeTab.SCAN) {
-                StatusCard(statusText)
-            } else {
-                HistoryPanel()
+                Spacer(modifier = Modifier.height(16.dp))
+                HistoryPanel(bottomPadding = 80.dp)
             }
         }
     }
 }
 
-@Composable
-private fun TabButton(label: String, selected: Boolean, onClick: () -> Unit) {
-    if (selected) {
-        ElevatedButton(onClick = onClick) {
-            Text(label)
-        }
-    } else {
-        OutlinedButton(onClick = onClick) {
-            Text(label)
-        }
-    }
-}
+private data class SavedPdf(
+    val name: String,
+    val uri: Uri,
+)
 
 @Composable
-private fun HistoryPanel() {
+private fun HistoryPanel(bottomPadding: androidx.compose.ui.unit.Dp = 0.dp) {
     val context = LocalContext.current
     var items by remember { mutableStateOf(emptyList<SavedPdf>()) }
 
@@ -332,7 +204,10 @@ private fun HistoryPanel() {
                 }
             }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottomPadding)
+            ) {
                 items(items) { item ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Row(
