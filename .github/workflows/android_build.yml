@@ -32,19 +32,19 @@ jobs:
         run: ./gradlew :app:assembleRelease
 
       - name: Sign APK
-        # We use this action because it handles the zipalign/Android 14 tools better
         uses: r0adkll/sign-android-release@v1
         id: sign_app
-        if: secrets.SIGNING_KEY != ''
+        if: env.SIGNING_KEY != ''
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          BUILD_TOOLS_VERSION: "34.0.0"
         with:
           releaseDirectory: app/build/outputs/apk/release
           signingKeyBase64: ${{ secrets.SIGNING_KEY }}
           alias: ${{ secrets.ALIAS }}
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
-        env:
-          # Required for Android 14 support
-          BUILD_TOOLS_VERSION: "34.0.0" 
+
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
