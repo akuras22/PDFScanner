@@ -7,13 +7,24 @@ plugins {
 val ciVersionCode = providers.gradleProperty("CI_VERSION_CODE").orNull?.toIntOrNull()
 val ciVersionName = providers.gradleProperty("CI_VERSION_NAME").orNull
 
+val releaseStoreFile = providers.gradleProperty("RELEASE_STORE_FILE").orNull
+val releaseStorePassword = providers.gradleProperty("RELEASE_STORE_PASSWORD").orNull
+val releaseKeyAlias = providers.gradleProperty("RELEASE_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.gradleProperty("RELEASE_KEY_PASSWORD").orNull
+
+val hasReleaseSigning =
+    !releaseStoreFile.isNullOrBlank() &&
+        !releaseStorePassword.isNullOrBlank() &&
+        !releaseKeyAlias.isNullOrBlank() &&
+        !releaseKeyPassword.isNullOrBlank()
+
 android {
     namespace = "com.akuras.pdfscanner"
     compileSdk = 35
 
     defaultConfig {
         applicationId = "com.akuras.pdfscanner"
-        minSdk = 26
+        minSdk = 34
         targetSdk = 35
         versionCode = ciVersionCode ?: 1
         versionName = ciVersionName ?: "1.0"
@@ -24,8 +35,24 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
