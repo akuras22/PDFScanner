@@ -37,6 +37,14 @@ Notes:
 - This app targets Android SDK 35 and min SDK 26.
 - The scanner relies on Google Play services and works best on Play-enabled devices/emulators.
 
+## OTA Update Flow (GitHub Releases)
+
+- On every push to `main` or `master`, GitHub Actions builds a release APK.
+- The workflow creates a GitHub Release with tag `v1.0.<run_number>` and uploads the APK asset.
+- CI injects app version values so each APK has an increasing `versionCode` (`run_number`).
+- When the app opens, it checks the latest release from `akuras22/PDFScanner`.
+- If a higher version is available, the app shows an update dialog and opens the download URL.
+
 ## How It Works
 
 1. User taps `Scan Document`.

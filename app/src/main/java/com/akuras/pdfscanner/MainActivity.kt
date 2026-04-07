@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContentUris
 import android.content.Intent
 import android.content.ActivityNotFoundException
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -90,6 +91,9 @@ import java.io.IOException
 
 class MainActivity : ComponentActivity() {
 
+    private val githubOwner = "akuras22"
+    private val githubRepo = "PDFScanner"
+
     private var onScanComplete: (() -> Unit)? = null
 
     private val scannerLauncher = registerForActivityResult(
@@ -119,7 +123,32 @@ class MainActivity : ComponentActivity() {
         setContent {
             PDFScannerTheme {
                 var refreshTrigger by rememberSaveable { mutableIntStateOf(0) }
+                var availableUpdate by remember { mutableStateOf<AvailableUpdate?>(null) }
+                var updateCheckDone by rememberSaveable { mutableStateOf(false) }
                 onScanComplete = { refreshTrigger++ }
+
+                LaunchedEffect(Unit) {
+                    if (!updateCheckDone) {
+                        val currentVersionCode = getCurrentVersionCode(this@MainActivity)
+                        availableUpdate = fetchAvailableUpdate(
+                            currentVersionCode = currentVersionCode,
+                            owner = githubOwner,
+                            repo = githubRepo,
+                        )
+                        updateCheckDone = true
+                    }
+                }
+
+                availableUpdate?.let { update ->
+                    UpdateAvailableDialog(
+                        update = update,
+                        onDismiss = { availableUpdate = null },
+                        onDownload = {
+                            openWebUrl(this@MainActivity, update.downloadUrl)
+                            availableUpdate = null
+                        }
+                    )
+                }
 
                 ScannerScreen(
                     refreshTrigger = refreshTrigger,
@@ -149,6 +178,31 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this, "Scanner unavailable", Toast.LENGTH_LONG).show()
             }
     }
+}
+
+@Composable
+private fun UpdateAvailableDialog(
+    update: AvailableUpdate,
+    onDismiss: () -> Unit,
+    onDownload: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Update available") },
+        text = {
+            Text("A newer version (${update.versionName}) is available. Download and install the latest APK?")
+        },
+        confirmButton = {
+            TextButton(onClick = onDownload) {
+                Text("Download")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Later")
+            }
+        }
+    )
 }
 
 @Composable
@@ -569,4 +623,23 @@ private fun deletePdf(context: Context, uri: Uri): Boolean {
     } catch (e: SecurityException) {
         false
     }
+}
+
+private fun getCurrentVersionCode(context: Context): Int {
+    return try {
+        val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageInfo.longVersionCode.toInt()
+        } else {
+            @Suppress("DEPRECATION")
+            packageInfo.versionCode
+        }
+    } catch (_: PackageManager.NameNotFoundException) {
+        1
+    }
+}
+
+private fun openWebUrl(context: Context, url: String) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+    context.startActivity(intent)
 }
