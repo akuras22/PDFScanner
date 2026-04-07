@@ -64,13 +64,27 @@ suspend fun fetchAvailableUpdate(
 }
 
 private fun parseVersionCodeFromTag(tag: String): Int? {
-    if (tag.isBlank()) return null
-    return Regex("(\\d+)$").find(tag)?.groupValues?.getOrNull(1)?.toIntOrNull()
+    return parseVersionCode(tag)
 }
 
 private fun parseVersionCodeFromName(name: String): Int? {
-    if (name.isBlank()) return null
-    return Regex("(\\d+)$").find(name)?.groupValues?.getOrNull(1)?.toIntOrNull()
+    return parseVersionCode(name)
+}
+
+private fun parseVersionCode(input: String): Int? {
+    if (input.isBlank()) return null
+
+    // Keep parsing aligned with CI tags like v1.0 or v1.0.1 by joining numeric parts.
+    val semverLike = Regex("(\\d+(?:\\.\\d+){0,2})")
+        .find(input)
+        ?.groupValues
+        ?.getOrNull(1)
+
+    if (!semverLike.isNullOrBlank()) {
+        return semverLike.replace(".", "").toIntOrNull()
+    }
+
+    return Regex("(\\d+)").find(input)?.groupValues?.getOrNull(1)?.toIntOrNull()
 }
 
 private fun JSONObject.findApkAssetUrl(): String? {
