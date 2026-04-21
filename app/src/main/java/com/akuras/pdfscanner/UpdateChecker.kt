@@ -115,7 +115,9 @@ private fun isNewerVersionAvailable(
 private fun parseVersionParts(input: String): List<Int>? {
     if (input.isBlank()) return null
     val normalized = Regex("(\\d+(?:\\.\\d+)*)").find(input)?.groupValues?.getOrNull(1) ?: return null
-    val parts = normalized.split(".").mapNotNull { it.toIntOrNull() }
+    val rawParts = normalized.split('.')
+    if (rawParts.any { it.isBlank() }) return null
+    val parts = rawParts.mapNotNull { it.toIntOrNull() }
     return parts.ifEmpty { null }
 }
 

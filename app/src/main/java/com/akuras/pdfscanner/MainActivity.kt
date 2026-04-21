@@ -206,7 +206,11 @@ class MainActivity : ComponentActivity() {
         }
 
         val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val apkName = "PDFScanner-update-${System.currentTimeMillis()}.apk"
+        val apkName = "PDFScanner-update.apk"
+        getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            ?.resolve(apkName)
+            ?.takeIf { it.exists() }
+            ?.delete()
         val request = DownloadManager.Request(Uri.parse(update.downloadUrl)).apply {
             setTitle("PDF Scanner update")
             setDescription("Downloading ${update.versionName}")
@@ -240,19 +244,19 @@ class MainActivity : ComponentActivity() {
                 val query = DownloadManager.Query().setFilterById(completedId)
                 downloadManager.query(query)?.use { cursor ->
                     if (!cursor.moveToFirst()) {
-                        Toast.makeText(this@MainActivity, "Update download failed", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "Update download not found", Toast.LENGTH_LONG).show()
                         return
                     }
 
                     val statusColumn = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
                     if (statusColumn == -1) {
-                        Toast.makeText(this@MainActivity, "Update download failed", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "Update download status unavailable", Toast.LENGTH_LONG).show()
                         return
                     }
 
                     val status = cursor.getInt(statusColumn)
                     if (status != DownloadManager.STATUS_SUCCESSFUL) {
-                        Toast.makeText(this@MainActivity, "Update download failed", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "Update download was cancelled or failed", Toast.LENGTH_LONG).show()
                         return
                     }
                 }
@@ -269,7 +273,7 @@ class MainActivity : ComponentActivity() {
 
         val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(receiver, filter, RECEIVER_NOT_EXPORTED)
+            registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("DEPRECATION")
             registerReceiver(receiver, filter)
