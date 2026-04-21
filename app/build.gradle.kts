@@ -26,8 +26,8 @@ android {
         applicationId = "com.akuras.pdfscanner"
         minSdk = 34
         targetSdk = 35
-        versionCode = ciVersionCode ?: 1
-        versionName = ciVersionName ?: "1.0"
+        versionCode = ciVersionCode ?: 2
+        versionName = ciVersionName ?: "1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -47,11 +47,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+        }
         release {
             signingConfig = if (hasReleaseSigning) {
                 signingConfigs.getByName("release")
             } else {
-                signingConfigs.getByName("debug")
+                null
             }
             isMinifyEnabled = false
             proguardFiles(
