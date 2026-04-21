@@ -211,7 +211,7 @@ class MainActivity : ComponentActivity() {
         val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val updateApkFile = getUpdateApkFile()
         if (updateApkFile == null) {
-            Toast.makeText(this, "Cannot access update download directory", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Unable to access storage for update download", Toast.LENGTH_LONG).show()
             return
         }
         if (updateApkFile.exists() && !updateApkFile.delete()) {

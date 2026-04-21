@@ -12,7 +12,7 @@ class UpdateCleanupReceiver : BroadcastReceiver() {
         val deleted = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             ?.resolve(UPDATE_APK_NAME)
             ?.delete()
-        if (deleted == false) {
+        if (deleted != true) {
             Log.w("UpdateCleanupReceiver", "Failed to delete downloaded update APK")
         }
     }
