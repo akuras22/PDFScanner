@@ -47,11 +47,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+        }
         release {
             signingConfig = if (hasReleaseSigning) {
                 signingConfigs.getByName("release")
             } else {
-                signingConfigs.getByName("debug")
+                null
             }
             isMinifyEnabled = false
             proguardFiles(
