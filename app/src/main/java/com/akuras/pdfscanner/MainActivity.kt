@@ -18,12 +18,14 @@ import android.os.Environment
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -92,6 +94,7 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import java.io.IOException
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -206,9 +209,12 @@ class MainActivity : ComponentActivity() {
         }
 
         val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val apkName = "PDFScanner-update.apk"
-        val existingApk = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.resolve(apkName)
-        if (existingApk?.exists() == true && !existingApk.delete()) {
+        val updateApkFile = getUpdateApkFile()
+        if (updateApkFile == null) {
+            Toast.makeText(this, "Unable to access storage for update download", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (updateApkFile.exists() && !updateApkFile.delete()) {
             Toast.makeText(this, "Could not prepare update file", Toast.LENGTH_LONG).show()
             return
         }
@@ -218,7 +224,7 @@ class MainActivity : ComponentActivity() {
             setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             setAllowedOverMetered(true)
             setAllowedOverRoaming(true)
-            setDestinationInExternalFilesDir(this@MainActivity, Environment.DIRECTORY_DOWNLOADS, apkName)
+            setDestinationInExternalFilesDir(this@MainActivity, Environment.DIRECTORY_DOWNLOADS, UPDATE_APK_NAME)
         }
 
         updateDownloadReceiver?.let {
@@ -268,13 +274,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                val apkUri = downloadManager.getUriForDownloadedFile(completedId)
-                if (apkUri == null) {
-                    Toast.makeText(this@MainActivity, "Could not open downloaded update", Toast.LENGTH_LONG).show()
-                    return
-                }
-
-                installDownloadedApk(apkUri)
+                installDownloadedApk(updateApkFile)
             }
         }
 
@@ -290,10 +290,18 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(this, "Downloading update...", Toast.LENGTH_SHORT).show()
     }
 
-    private fun installDownloadedApk(apkUri: Uri) {
+    private fun installDownloadedApk(apkFile: File) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
             Toast.makeText(this, "Allow this app to install unknown apps to continue", Toast.LENGTH_LONG).show()
             openInstallUnknownAppsSettings()
+            return
+        }
+
+        val apkUri = try {
+            FileProvider.getUriForFile(this, "$packageName.provider", apkFile)
+        } catch (e: IllegalArgumentException) {
+            Log.e("MainActivity", "Failed to create install URI for update APK", e)
+            Toast.makeText(this, "Could not open downloaded update", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -308,6 +316,10 @@ class MainActivity : ComponentActivity() {
         } catch (_: ActivityNotFoundException) {
             Toast.makeText(this, "No installer found to complete update", Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun getUpdateApkFile(): File? {
+        return getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.resolve(UPDATE_APK_NAME)
     }
 
     private fun openInstallUnknownAppsSettings() {
