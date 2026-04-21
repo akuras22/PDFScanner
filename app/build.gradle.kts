@@ -26,7 +26,7 @@ android {
         applicationId = "com.akuras.pdfscanner"
         minSdk = 34
         targetSdk = 35
-        versionCode = ciVersionCode ?: 14
+        versionCode = ciVersionCode ?: 3
         versionName = ciVersionName ?: "1.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

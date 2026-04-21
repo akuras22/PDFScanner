@@ -15,8 +15,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.os.Handler
-import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.provider.Settings
@@ -217,8 +215,7 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Could not prepare update file", Toast.LENGTH_LONG).show()
             return
         }
-        val existingApk = updateApkFile
-        if (existingApk?.exists() == true && !existingApk.delete()) {
+        if (updateApkFile.exists() && !updateApkFile.delete()) {
             Toast.makeText(this, "Could not prepare update file", Toast.LENGTH_LONG).show()
             return
         }
@@ -321,7 +318,6 @@ class MainActivity : ComponentActivity() {
 
         try {
             startActivity(installIntent)
-            scheduleUpdateApkCleanup(apkFile)
         } catch (_: ActivityNotFoundException) {
             Toast.makeText(this, "No installer found to complete update", Toast.LENGTH_LONG).show()
         }
@@ -329,12 +325,6 @@ class MainActivity : ComponentActivity() {
 
     private fun getUpdateApkFile(): File? {
         return getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.resolve(updateApkName)
-    }
-
-    private fun scheduleUpdateApkCleanup(apkFile: File) {
-        Handler(Looper.getMainLooper()).postDelayed({
-            apkFile.delete()
-        }, 60_000L)
     }
 
     private fun deleteStaleDownloadedUpdateApk() {
