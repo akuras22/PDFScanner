@@ -207,10 +207,11 @@ class MainActivity : ComponentActivity() {
 
         val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val apkName = "PDFScanner-update.apk"
-        getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-            ?.resolve(apkName)
-            ?.takeIf { it.exists() }
-            ?.delete()
+        val existingApk = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.resolve(apkName)
+        if (existingApk?.exists() == true && !existingApk.delete()) {
+            Toast.makeText(this, "Could not prepare update file", Toast.LENGTH_LONG).show()
+            return
+        }
         val request = DownloadManager.Request(Uri.parse(update.downloadUrl)).apply {
             setTitle("PDF Scanner update")
             setDescription("Downloading ${update.versionName}")
@@ -242,7 +243,13 @@ class MainActivity : ComponentActivity() {
                 updateDownloadReceiver = null
 
                 val query = DownloadManager.Query().setFilterById(completedId)
-                downloadManager.query(query)?.use { cursor ->
+                val cursor = downloadManager.query(query)
+                if (cursor == null) {
+                    Toast.makeText(this@MainActivity, "Failed to query download status", Toast.LENGTH_LONG).show()
+                    return
+                }
+
+                cursor.use {
                     if (!cursor.moveToFirst()) {
                         Toast.makeText(this@MainActivity, "Update download not found", Toast.LENGTH_LONG).show()
                         return
