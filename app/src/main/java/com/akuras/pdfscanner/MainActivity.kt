@@ -18,6 +18,7 @@ import android.os.Environment
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -128,7 +129,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        deleteStaleDownloadedUpdateApk()
 
         setContent {
             PDFScannerTheme {
@@ -212,7 +212,7 @@ class MainActivity : ComponentActivity() {
         val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val updateApkFile = getUpdateApkFile()
         if (updateApkFile == null) {
-            Toast.makeText(this, "Could not prepare update file", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Cannot access update download directory", Toast.LENGTH_LONG).show()
             return
         }
         if (updateApkFile.exists() && !updateApkFile.delete()) {
@@ -305,7 +305,8 @@ class MainActivity : ComponentActivity() {
 
         val apkUri = try {
             FileProvider.getUriForFile(this, "$packageName.provider", apkFile)
-        } catch (_: IllegalArgumentException) {
+        } catch (e: IllegalArgumentException) {
+            Log.e("MainActivity", "Failed to create install URI for update APK", e)
             Toast.makeText(this, "Could not open downloaded update", Toast.LENGTH_LONG).show()
             return
         }
@@ -325,10 +326,6 @@ class MainActivity : ComponentActivity() {
 
     private fun getUpdateApkFile(): File? {
         return getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.resolve(updateApkName)
-    }
-
-    private fun deleteStaleDownloadedUpdateApk() {
-        getUpdateApkFile()?.delete()
     }
 
     private fun openInstallUnknownAppsSettings() {
