@@ -104,7 +104,6 @@ class MainActivity : ComponentActivity() {
     private var onScanComplete: (() -> Unit)? = null
     private var updateDownloadId: Long? = null
     private var updateDownloadReceiver: BroadcastReceiver? = null
-    private val updateApkName = "PDFScanner-update.apk"
 
     private val scannerLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -225,7 +224,7 @@ class MainActivity : ComponentActivity() {
             setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             setAllowedOverMetered(true)
             setAllowedOverRoaming(true)
-            setDestinationInExternalFilesDir(this@MainActivity, Environment.DIRECTORY_DOWNLOADS, updateApkName)
+            setDestinationInExternalFilesDir(this@MainActivity, Environment.DIRECTORY_DOWNLOADS, UPDATE_APK_NAME)
         }
 
         updateDownloadReceiver?.let {
@@ -325,7 +324,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun getUpdateApkFile(): File? {
-        return getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.resolve(updateApkName)
+        return getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.resolve(UPDATE_APK_NAME)
     }
 
     private fun openInstallUnknownAppsSettings() {
