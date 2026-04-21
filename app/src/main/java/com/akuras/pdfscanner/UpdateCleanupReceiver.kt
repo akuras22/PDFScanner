@@ -6,8 +6,6 @@ import android.content.Intent
 import android.os.Environment
 import android.util.Log
 
-const val UPDATE_APK_NAME = "PDFScanner-update.apk"
-
 class UpdateCleanupReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != Intent.ACTION_MY_PACKAGE_REPLACED) return

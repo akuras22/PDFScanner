@@ -274,11 +274,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (!updateApkFile.exists()) {
-                    Toast.makeText(this@MainActivity, "Could not open downloaded update", Toast.LENGTH_LONG).show()
-                    return
-                }
-
                 installDownloadedApk(updateApkFile)
             }
         }
