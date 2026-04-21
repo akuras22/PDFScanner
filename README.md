@@ -43,7 +43,7 @@ Notes:
 - The workflow creates a GitHub Release with tag `v1.0.<run_number>` and uploads the APK asset.
 - CI injects app version values so each APK has an increasing `versionCode` (`run_number`).
 - When the app opens, it checks the latest release from `akuras22/PDFScanner`.
-- If a higher version is available, the app shows an update dialog and opens the download URL.
+- If a higher version is available, the app shows an update dialog, downloads the latest release APK in-app, and launches the installer automatically.
 
 ## How It Works
 

@@ -15,6 +15,7 @@ data class AvailableUpdate(
 
 suspend fun fetchAvailableUpdate(
     currentVersionCode: Int,
+    currentVersionName: String,
     owner: String,
     repo: String,
 ): AvailableUpdate? = withContext(Dispatchers.IO) {
@@ -37,11 +38,12 @@ suspend fun fetchAvailableUpdate(
         val release = JSONObject(responseText)
 
         val tagName = release.optString("tag_name")
+        val latestVersionName = tagName.ifBlank { release.optString("name", "Unknown") }
         val latestCode = parseVersionCodeFromTag(tagName)
             ?: parseVersionCodeFromName(release.optString("name"))
             ?: return@withContext null
 
-        if (latestCode <= currentVersionCode) {
+        if (!isNewerVersionAvailable(latestVersionName, currentVersionName, latestCode, currentVersionCode)) {
             return@withContext null
         }
 
@@ -50,10 +52,9 @@ suspend fun fetchAvailableUpdate(
             return@withContext null
         }
 
-        val versionName = tagName.ifBlank { release.optString("name", "Unknown") }
         AvailableUpdate(
             versionCode = latestCode,
-            versionName = versionName,
+            versionName = latestVersionName,
             downloadUrl = downloadUrl,
         )
     } catch (_: Exception) {
@@ -87,15 +88,59 @@ private fun parseVersionCode(input: String): Int? {
     return Regex("(\\d+)").find(input)?.groupValues?.getOrNull(1)?.toIntOrNull()
 }
 
+private fun isNewerVersionAvailable(
+    latestVersionName: String,
+    currentVersionName: String,
+    latestVersionCode: Int,
+    currentVersionCode: Int,
+): Boolean {
+    val latestParts = parseVersionParts(latestVersionName)
+    val currentParts = parseVersionParts(currentVersionName)
+
+    if (latestParts != null && currentParts != null) {
+        val maxSize = maxOf(latestParts.size, currentParts.size)
+        for (index in 0 until maxSize) {
+            val latestPart = latestParts.getOrElse(index) { 0 }
+            val currentPart = currentParts.getOrElse(index) { 0 }
+            if (latestPart != currentPart) {
+                return latestPart > currentPart
+            }
+        }
+        return false
+    }
+
+    return latestVersionCode > currentVersionCode
+}
+
+private fun parseVersionParts(input: String): List<Int>? {
+    if (input.isBlank()) return null
+    val normalized = Regex("(\\d+(?:\\.\\d+)+|\\d+)").find(input)?.groupValues?.getOrNull(1) ?: return null
+    val rawParts = normalized.split('.')
+    if (rawParts.any { it.isBlank() }) return null
+    val parts = rawParts.mapNotNull { it.toIntOrNull() }
+    return parts.ifEmpty { null }
+}
+
 private fun JSONObject.findApkAssetUrl(): String? {
     val assets = optJSONArray("assets") ?: JSONArray()
+    var preferredSigned: String? = null
+    var preferredRegular: String? = null
+    var fallbackUnsigned: String? = null
+
     for (i in 0 until assets.length()) {
         val asset = assets.optJSONObject(i) ?: continue
         val name = asset.optString("name")
         val browserUrl = asset.optString("browser_download_url")
-        if (name.endsWith(".apk", ignoreCase = true) && browserUrl.isNotBlank()) {
-            return browserUrl
+        if (!name.endsWith(".apk", ignoreCase = true) || browserUrl.isBlank()) {
+            continue
+        }
+
+        val lowerName = name.lowercase()
+        when {
+            lowerName.contains("signed") -> if (preferredSigned == null) preferredSigned = browserUrl
+            !lowerName.contains("unsigned") -> if (preferredRegular == null) preferredRegular = browserUrl
+            fallbackUnsigned == null -> fallbackUnsigned = browserUrl
         }
     }
-    return null
+    return preferredSigned ?: preferredRegular ?: fallbackUnsigned
 }
