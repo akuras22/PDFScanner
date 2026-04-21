@@ -15,6 +15,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.provider.Settings
@@ -24,6 +26,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -92,6 +95,7 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import java.io.IOException
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -101,6 +105,7 @@ class MainActivity : ComponentActivity() {
     private var onScanComplete: (() -> Unit)? = null
     private var updateDownloadId: Long? = null
     private var updateDownloadReceiver: BroadcastReceiver? = null
+    private val updateApkName = "PDFScanner-update.apk"
 
     private val scannerLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -125,6 +130,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        deleteStaleDownloadedUpdateApk()
 
         setContent {
             PDFScannerTheme {
@@ -206,8 +212,12 @@ class MainActivity : ComponentActivity() {
         }
 
         val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val apkName = "PDFScanner-update.apk"
-        val existingApk = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.resolve(apkName)
+        val updateApkFile = getUpdateApkFile()
+        if (updateApkFile == null) {
+            Toast.makeText(this, "Could not prepare update file", Toast.LENGTH_LONG).show()
+            return
+        }
+        val existingApk = updateApkFile
         if (existingApk?.exists() == true && !existingApk.delete()) {
             Toast.makeText(this, "Could not prepare update file", Toast.LENGTH_LONG).show()
             return
@@ -218,7 +228,7 @@ class MainActivity : ComponentActivity() {
             setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             setAllowedOverMetered(true)
             setAllowedOverRoaming(true)
-            setDestinationInExternalFilesDir(this@MainActivity, Environment.DIRECTORY_DOWNLOADS, apkName)
+            setDestinationInExternalFilesDir(this@MainActivity, Environment.DIRECTORY_DOWNLOADS, updateApkName)
         }
 
         updateDownloadReceiver?.let {
@@ -268,13 +278,12 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                val apkUri = downloadManager.getUriForDownloadedFile(completedId)
-                if (apkUri == null) {
+                if (!updateApkFile.exists()) {
                     Toast.makeText(this@MainActivity, "Could not open downloaded update", Toast.LENGTH_LONG).show()
                     return
                 }
 
-                installDownloadedApk(apkUri)
+                installDownloadedApk(updateApkFile)
             }
         }
 
@@ -290,10 +299,17 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(this, "Downloading update...", Toast.LENGTH_SHORT).show()
     }
 
-    private fun installDownloadedApk(apkUri: Uri) {
+    private fun installDownloadedApk(apkFile: File) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
             Toast.makeText(this, "Allow this app to install unknown apps to continue", Toast.LENGTH_LONG).show()
             openInstallUnknownAppsSettings()
+            return
+        }
+
+        val apkUri = try {
+            FileProvider.getUriForFile(this, "$packageName.provider", apkFile)
+        } catch (_: IllegalArgumentException) {
+            Toast.makeText(this, "Could not open downloaded update", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -305,9 +321,24 @@ class MainActivity : ComponentActivity() {
 
         try {
             startActivity(installIntent)
+            scheduleUpdateApkCleanup(apkFile)
         } catch (_: ActivityNotFoundException) {
             Toast.makeText(this, "No installer found to complete update", Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun getUpdateApkFile(): File? {
+        return getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.resolve(updateApkName)
+    }
+
+    private fun scheduleUpdateApkCleanup(apkFile: File) {
+        Handler(Looper.getMainLooper()).postDelayed({
+            apkFile.delete()
+        }, 60_000L)
+    }
+
+    private fun deleteStaleDownloadedUpdateApk() {
+        getUpdateApkFile()?.delete()
     }
 
     private fun openInstallUnknownAppsSettings() {
