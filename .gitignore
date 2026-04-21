@@ -10,3 +10,4 @@
 *.jks
 *.keystore
 build/
+*.docx
