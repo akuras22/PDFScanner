@@ -1057,7 +1057,9 @@ private fun reorderPdfPages(context: Context, targetUri: Uri, pageOrder: List<In
             tempFile.inputStream().use { input ->
                 input.copyTo(output)
             }
-        } ?: false
+        } ?: return false
+
+        true
     } catch (_: Exception) {
         false
     } finally {
