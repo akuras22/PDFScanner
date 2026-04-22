@@ -27,7 +27,7 @@ android {
         minSdk = 34
         targetSdk = 35
         versionCode = ciVersionCode ?: 3
-        versionName = ciVersionName ?: "1.4"
+        versionName = ciVersionName ?: "1.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
