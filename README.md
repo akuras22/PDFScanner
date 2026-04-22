@@ -11,6 +11,8 @@ Starter Android app that scans documents, auto-crops/enhances them (via ML Kit),
 - Built-in `History` screen listing previously saved PDFs.
 - One-tap `Open` and `Delete` actions for every saved PDF.
 - One-tap `Share` action for every saved PDF.
+- Merge multiple saved PDFs into one merged file.
+- Reorder pages inside saved PDFs.
 - Tablet-compatible adaptive UI (phone and tablet layouts).
 
 ## Tech Stack
