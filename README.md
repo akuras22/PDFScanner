@@ -36,7 +36,7 @@ Starter Android app that scans documents, auto-crops/enhances them (via ML Kit),
 
 Notes:
 
-- This app targets Android SDK 35 and min SDK 34.
+- This app targets Android SDK 35 and min SDK 34 (Android 14+ only).
 - The scanner relies on Google Play services and works best on Play-enabled devices/emulators.
 
 ## OTA Update Flow (GitHub Releases)

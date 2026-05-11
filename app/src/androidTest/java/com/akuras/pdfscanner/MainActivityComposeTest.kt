@@ -13,16 +13,16 @@ class MainActivityComposeTest {
 
     @Test
     fun scanButtonIsVisible() {
-        composeRule.onNodeWithText("Scan Document").assertIsDisplayed()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.scan_document)).assertIsDisplayed()
     }
 
     @Test
     fun historyPanelHeaderIsVisible() {
-        composeRule.onNodeWithText("Saved PDFs").assertIsDisplayed()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.saved_pdfs)).assertIsDisplayed()
     }
 
     @Test
     fun emptyStateMessageIsVisible() {
-        composeRule.onNodeWithText("No scanned documents yet").assertIsDisplayed()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.no_scanned_documents)).assertIsDisplayed()
     }
 }
