@@ -485,14 +485,14 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         val resolver = context.contentResolver
-        val added = uris.mapIndexed { index, uri ->
+        val added = uris.map { uri ->
             try {
                 resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             } catch (e: Exception) {
-                Log.w("HistoryPanel", "Could not persist read permission for external PDF: $uri. Merge may fail if temporary access expires.", e)
+                Log.w("HistoryPanel", "Could not persist read permission for external PDF: $uri. It can still merge now, but may fail later if access expires.", e)
             }
             SavedPdf(
-                name = queryPdfDisplayName(context, uri) ?: "External PDF ${index + 1}",
+                name = queryPdfDisplayName(context, uri) ?: "External PDF ${uri.hashCode().toUInt()}",
                 uri = uri,
                 isExternal = true,
             )
@@ -876,7 +876,7 @@ private fun ReorderPagesDialog(
                                                 bitmap = preview.asImageBitmap(),
                                                 contentDescription = "Page ${page + 1} preview",
                                                 modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop
+                                                contentScale = ContentScale.Fit
                                             )
                                         } else {
                                             Icon(
