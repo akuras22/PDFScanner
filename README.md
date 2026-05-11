@@ -36,12 +36,12 @@ Starter Android app that scans documents, auto-crops/enhances them (via ML Kit),
 
 Notes:
 
-- This app targets Android SDK 35 and min SDK 26.
+- This app targets Android SDK 35 and min SDK 34.
 - The scanner relies on Google Play services and works best on Play-enabled devices/emulators.
 
 ## OTA Update Flow (GitHub Releases)
 
-- On every push to `main` or `master`, GitHub Actions builds a release APK.
+- On every pushed tag matching `v*` (or manual dispatch), GitHub Actions builds a release APK.
 - The workflow creates a GitHub Release with tag `v1.0.<run_number>` and uploads the APK asset.
 - CI injects app version values so each APK has an increasing `versionCode` (`run_number`).
 - When the app opens, it checks the latest release from `akuras22/PDFScanner`.
