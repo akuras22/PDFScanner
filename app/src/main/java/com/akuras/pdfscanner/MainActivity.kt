@@ -485,14 +485,15 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         val resolver = context.contentResolver
-        val added = uris.map { uri ->
+        val startIndex = externalMergeItems.size + 1
+        val added = uris.mapIndexed { index, uri ->
             try {
                 resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             } catch (e: Exception) {
                 Log.w("HistoryPanel", "Failed to persist read permission for $uri", e)
             }
             SavedPdf(
-                name = queryPdfDisplayName(context, uri) ?: "External PDF ${uri.toString().hashCode().toUInt().toString(16)}",
+                name = queryPdfDisplayName(context, uri) ?: "External PDF ${startIndex + index}",
                 uri = uri,
                 isExternal = true,
             )
