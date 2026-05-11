@@ -37,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -93,7 +94,7 @@ private fun SettingsScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Settings", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.settings), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -115,10 +116,10 @@ private fun SettingsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 8.dp)
             ) {
-                Text("File Name Template", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.file_name_template), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    "Set the default name for scanned PDFs. Tap tokens below to insert them at the cursor.",
+                    stringResource(R.string.file_name_template_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -131,7 +132,7 @@ private fun SettingsScreen(
                         onPatternChanged(it.text)
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("File name pattern") },
+                    label = { Text(stringResource(R.string.file_name_pattern)) },
                     singleLine = true
                 )
 
@@ -139,7 +140,7 @@ private fun SettingsScreen(
 
                 val preview = resolveFileName(textFieldValue.text)
                 Text(
-                    text = "Preview: $preview.pdf",
+                    text = stringResource(R.string.preview_file_name, preview),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -147,7 +148,7 @@ private fun SettingsScreen(
                 Spacer(modifier = Modifier.height(20.dp))
 
                 // Date tokens group
-                Text("Date Tokens", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.date_tokens), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(8.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -172,7 +173,7 @@ private fun SettingsScreen(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Time tokens group
-                Text("Time Tokens", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.time_tokens), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(8.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -201,7 +202,7 @@ private fun SettingsScreen(
                         textFieldValue = TextFieldValue(DEFAULT_PATTERN, TextRange(DEFAULT_PATTERN.length))
                         onPatternChanged(DEFAULT_PATTERN)
                     }) {
-                        Text("Reset to Default")
+                        Text(stringResource(R.string.reset_to_default))
                     }
                 }
 

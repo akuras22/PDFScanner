@@ -1,18 +1,12 @@
 package com.akuras.pdfscanner
 
-import android.content.ContentValues
-import android.content.Context
-import android.content.ContentUris
-import android.content.Intent
-import android.content.ActivityNotFoundException
 import android.app.DownloadManager
+import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Color
-import android.graphics.pdf.PdfDocument
-import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -94,6 +88,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -102,11 +97,12 @@ import com.akuras.pdfscanner.ui.theme.PDFScannerTheme
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
-import java.io.IOException
 import java.io.File
+import java.io.IOException
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val PAGE_ASPECT_RATIO = 0.707f
 private const val PAGE_PREVIEW_WIDTH_PX = 220
@@ -127,16 +123,14 @@ class MainActivity : ComponentActivity() {
         val scanningResult = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
         val pdfUri = scanningResult?.pdf?.uri
 
-        if (pdfUri == null) {
-            return@registerForActivityResult
-        }
+        if (pdfUri == null) return@registerForActivityResult
 
         val pattern = loadFileNamePattern(this)
-        val saved = savePdfToDownloads(this, pdfUri, pattern)
+        val saved = PdfStorage.savePdfToDownloads(this, pdfUri, pattern)
         if (saved != null) {
-            Toast.makeText(this, "Saved to Downloads/PDFScanner", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.saved_to_downloads), Toast.LENGTH_LONG).show()
         } else {
-            Toast.makeText(this, "Unable to save PDF", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.unable_to_save_pdf), Toast.LENGTH_LONG).show()
         }
         onScanComplete?.invoke()
     }
@@ -154,11 +148,9 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     if (!updateCheckDone) {
-                        val currentVersionCode = getCurrentVersionCode(this@MainActivity)
-                        val currentVersionName = getCurrentVersionName(this@MainActivity)
                         availableUpdate = fetchAvailableUpdate(
-                            currentVersionCode = currentVersionCode,
-                            currentVersionName = currentVersionName,
+                            currentVersionCode = getCurrentVersionCode(this@MainActivity),
+                            currentVersionName = getCurrentVersionName(this@MainActivity),
                             owner = githubOwner,
                             repo = githubRepo,
                         )
@@ -180,9 +172,7 @@ class MainActivity : ComponentActivity() {
                 ScannerScreen(
                     refreshTrigger = refreshTrigger,
                     onScanClick = { startScan() },
-                    onSettingsClick = {
-                        startActivity(Intent(this, SettingsActivity::class.java))
-                    }
+                    onSettingsClick = { startActivity(Intent(this, SettingsActivity::class.java)) },
                 )
             }
         }
@@ -212,30 +202,36 @@ class MainActivity : ComponentActivity() {
                 scannerLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
             }
             .addOnFailureListener {
-                Toast.makeText(this, "Scanner unavailable", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, getString(R.string.scanner_unavailable), Toast.LENGTH_LONG).show()
             }
     }
 
     private fun startUpdateDownload(update: AvailableUpdate) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(this, "Allow this app to install unknown apps to update", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.allow_install_unknown_apps), Toast.LENGTH_LONG).show()
             openInstallUnknownAppsSettings()
             return
         }
 
+        if (!isTrustedApkUrl(update.downloadUrl, githubOwner, githubRepo)) {
+            Toast.makeText(this, getString(R.string.update_source_not_trusted), Toast.LENGTH_LONG).show()
+            return
+        }
+
         val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val updateApkFile = getUpdateApkFile()
-        if (updateApkFile == null) {
-            Toast.makeText(this, "Unable to access storage for update download", Toast.LENGTH_LONG).show()
+        val updateApkFile = getUpdateApkFile() ?: run {
+            Toast.makeText(this, getString(R.string.unable_access_storage), Toast.LENGTH_LONG).show()
             return
         }
+
         if (updateApkFile.exists() && !updateApkFile.delete()) {
-            Toast.makeText(this, "Could not prepare update file", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.could_not_prepare_update_file), Toast.LENGTH_LONG).show()
             return
         }
+
         val request = DownloadManager.Request(Uri.parse(update.downloadUrl)).apply {
-            setTitle("PDF Scanner update")
-            setDescription("Downloading ${update.versionName}")
+            setTitle(getString(R.string.update_download_title))
+            setDescription(getString(R.string.update_downloading_version, update.versionName))
             setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             setAllowedOverMetered(true)
             setAllowedOverRoaming(true)
@@ -263,28 +259,24 @@ class MainActivity : ComponentActivity() {
                 }
                 updateDownloadReceiver = null
 
-                val query = DownloadManager.Query().setFilterById(completedId)
-                val cursor = downloadManager.query(query)
+                val cursor = downloadManager.query(DownloadManager.Query().setFilterById(completedId))
                 if (cursor == null) {
-                    Toast.makeText(this@MainActivity, "Failed to query download status", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, getString(R.string.download_status_query_failed), Toast.LENGTH_LONG).show()
                     return
                 }
 
                 cursor.use {
                     if (!cursor.moveToFirst()) {
-                        Toast.makeText(this@MainActivity, "Update download not found", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, getString(R.string.download_not_found), Toast.LENGTH_LONG).show()
                         return
                     }
-
                     val statusColumn = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
                     if (statusColumn == -1) {
-                        Toast.makeText(this@MainActivity, "Update download status unavailable", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, getString(R.string.download_status_unavailable), Toast.LENGTH_LONG).show()
                         return
                     }
-
-                    val status = cursor.getInt(statusColumn)
-                    if (status != DownloadManager.STATUS_SUCCESSFUL) {
-                        Toast.makeText(this@MainActivity, "Update download was cancelled or failed", Toast.LENGTH_LONG).show()
+                    if (cursor.getInt(statusColumn) != DownloadManager.STATUS_SUCCESSFUL) {
+                        Toast.makeText(this@MainActivity, getString(R.string.download_failed_or_cancelled), Toast.LENGTH_LONG).show()
                         return
                     }
                 }
@@ -302,13 +294,18 @@ class MainActivity : ComponentActivity() {
         }
         updateDownloadReceiver = receiver
 
-        Toast.makeText(this, "Downloading update...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.downloading_update), Toast.LENGTH_SHORT).show()
     }
 
     private fun installDownloadedApk(apkFile: File) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(this, "Allow this app to install unknown apps to continue", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.allow_install_to_continue), Toast.LENGTH_LONG).show()
             openInstallUnknownAppsSettings()
+            return
+        }
+
+        if (!isSafeUpdateApk(apkFile)) {
+            Toast.makeText(this, getString(R.string.update_integrity_check_failed), Toast.LENGTH_LONG).show()
             return
         }
 
@@ -316,7 +313,7 @@ class MainActivity : ComponentActivity() {
             FileProvider.getUriForFile(this, "$packageName.provider", apkFile)
         } catch (e: IllegalArgumentException) {
             Log.e("MainActivity", "Failed to create install URI for update APK", e)
-            Toast.makeText(this, "Could not open downloaded update", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.could_not_open_update), Toast.LENGTH_LONG).show()
             return
         }
 
@@ -329,8 +326,25 @@ class MainActivity : ComponentActivity() {
         try {
             startActivity(installIntent)
         } catch (_: ActivityNotFoundException) {
-            Toast.makeText(this, "No installer found to complete update", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.no_installer_found), Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun isSafeUpdateApk(apkFile: File): Boolean {
+        val flags = PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong())
+        val archiveInfo = packageManager.getPackageArchiveInfo(apkFile.absolutePath, flags) ?: return false
+        if (archiveInfo.packageName != packageName) return false
+
+        val currentInfo = packageManager.getPackageInfo(packageName, flags)
+        val currentSigners = currentInfo.signingInfo?.apkContentsSigners?.map(::sha256Hex).orEmpty().toSet()
+        val updateSigners = archiveInfo.signingInfo?.apkContentsSigners?.map(::sha256Hex).orEmpty().toSet()
+        return currentSigners.isNotEmpty() && currentSigners == updateSigners
+    }
+
+    private fun sha256Hex(signature: android.content.pm.Signature): String {
+        return MessageDigest.getInstance("SHA-256")
+            .digest(signature.toByteArray())
+            .joinToString("") { "%02x".format(it) }
     }
 
     private fun getUpdateApkFile(): File? {
@@ -338,36 +352,34 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openInstallUnknownAppsSettings() {
-        val settingsIntent = Intent(
-            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-            Uri.parse("package:$packageName")
-        ).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        startActivity(settingsIntent)
+        startActivity(
+            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        )
     }
 }
 
-@Composable
+@androidx.compose.runtime.Composable
 private fun UpdateAvailableDialog(
     update: AvailableUpdate,
     onDismiss: () -> Unit,
     onDownload: () -> Unit,
 ) {
-    AlertDialog(
+    androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Update available") },
+        title = { androidx.compose.material3.Text(stringResource(R.string.update_available)) },
         text = {
-            Text("A newer version (${update.versionName}) is available. Download and install the latest APK?")
+            androidx.compose.material3.Text(stringResource(R.string.new_version_available, update.versionName))
         },
         confirmButton = {
-            TextButton(onClick = onDownload) {
-                Text("Download")
+            androidx.compose.material3.TextButton(onClick = onDownload) {
+                androidx.compose.material3.Text(stringResource(R.string.download))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Later")
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                androidx.compose.material3.Text(stringResource(R.string.later))
             }
         }
     )
@@ -1309,7 +1321,6 @@ private fun deletePdf(context: Context, uri: Uri): Boolean {
         false
     }
 }
-
 private fun getCurrentVersionCode(context: Context): Int {
     return try {
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
