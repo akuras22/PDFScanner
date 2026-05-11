@@ -19,10 +19,12 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
@@ -55,6 +57,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
@@ -70,6 +73,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -454,6 +458,7 @@ private fun ScannerScreen(
 private data class SavedPdf(
     val name: String,
     val uri: Uri,
+    val isExternal: Boolean = false,
 )
 
 @Composable
@@ -461,6 +466,7 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf(emptyList<SavedPdf>()) }
+    var externalMergeItems by remember { mutableStateOf(emptyList<SavedPdf>()) }
     var mergeMode by remember { mutableStateOf(false) }
     var isMerging by remember { mutableStateOf(false) }
     var selectedMergeUris by remember { mutableStateOf(setOf<String>()) }
@@ -468,11 +474,33 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
     val config = LocalConfiguration.current
     val isWide = config.screenWidthDp > 600
     val columns = if (isWide) 2 else 1
+    val mergeCandidates = (items + externalMergeItems).distinctBy { it.uri.toString() }
+    val displayedItems = if (mergeMode) mergeCandidates else items
+    val externalPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        val resolver = context.contentResolver
+        val added = uris.map { uri ->
+            try {
+                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: Exception) {
+            }
+            SavedPdf(
+                name = queryPdfDisplayName(context, uri) ?: "External PDF",
+                uri = uri,
+                isExternal = true,
+            )
+        }
+        externalMergeItems = (externalMergeItems + added).distinctBy { it.uri.toString() }
+    }
 
     LaunchedEffect(refreshTrigger) {
-        items = querySavedPdfs(context)
+        val refreshed = querySavedPdfs(context)
+        items = refreshed
         selectedMergeUris = selectedMergeUris.filterTo(mutableSetOf()) { selected ->
-            items.any { it.uri.toString() == selected }
+            refreshed.any { it.uri.toString() == selected } ||
+                externalMergeItems.any { it.uri.toString() == selected }
         }
     }
 
@@ -501,6 +529,7 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
                         mergeMode = !mergeMode
                         if (!mergeMode) {
                             selectedMergeUris = emptySet()
+                            externalMergeItems = emptyList()
                         }
                     }
                 ) {
@@ -512,10 +541,18 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    OutlinedButton(
+                        enabled = !isMerging,
+                        onClick = {
+                            externalPicker.launch(arrayOf("application/pdf"))
+                        }
+                    ) {
+                        Text("Add External PDFs")
+                    }
                     Button(
                         enabled = selectedMergeUris.size >= 2 && !isMerging,
                         onClick = {
-                            val mergeUris = items
+                            val mergeUris = mergeCandidates
                                 .filter { selectedMergeUris.contains(it.uri.toString()) }
                                 .map { it.uri }
                             scope.launch {
@@ -530,6 +567,7 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
                                     items = querySavedPdfs(context)
                                     mergeMode = false
                                     selectedMergeUris = emptySet()
+                                    externalMergeItems = emptyList()
                                     thumbnailSeed++
                                 } else {
                                     Toast.makeText(context, "Merge failed", Toast.LENGTH_SHORT).show()
@@ -544,7 +582,7 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
             Spacer(modifier = Modifier.height(12.dp))
         }
 
-        if (items.isEmpty()) {
+        if (displayedItems.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -578,7 +616,7 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(bottom = 80.dp)
             ) {
-                items(items, key = { it.uri.toString() }) { item ->
+                items(displayedItems, key = { it.uri.toString() }) { item ->
                     PdfHistoryCard(
                         item = item,
                         isWide = isWide,
@@ -626,7 +664,7 @@ private fun PdfHistoryCard(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showReorderDialog by remember { mutableStateOf(false) }
 
-    if (showDeleteDialog) {
+    if (showDeleteDialog && !item.isExternal) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("Delete document?") },
@@ -652,7 +690,7 @@ private fun PdfHistoryCard(
         )
     }
 
-    if (showReorderDialog) {
+    if (showReorderDialog && !item.isExternal) {
         ReorderPagesDialog(
             item = item,
             onDismiss = { showReorderDialog = false },
@@ -726,6 +764,14 @@ private fun PdfHistoryCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (item.isExternal) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "External PDF",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -742,14 +788,16 @@ private fun PdfHistoryCard(
                     ) {
                         Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(18.dp))
                     }
-                    TextButton(
+                    FilledTonalIconButton(
                         onClick = { showReorderDialog = true },
-                        modifier = Modifier.height(40.dp)
+                        enabled = !item.isExternal,
+                        modifier = Modifier.size(40.dp)
                     ) {
-                        Text("Pages")
+                        Icon(Icons.Default.Collections, contentDescription = "Pages", modifier = Modifier.size(18.dp))
                     }
                     FilledTonalIconButton(
                         onClick = { showDeleteDialog = true },
+                        enabled = !item.isExternal,
                         modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
@@ -774,10 +822,13 @@ private fun ReorderPagesDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var pageOrder by remember(item.uri) { mutableStateOf<List<Int>?>(null) }
+    var pagePreviews by remember(item.uri) { mutableStateOf<List<Bitmap?>?>(null) }
     var isSaving by remember { mutableStateOf(false) }
 
     LaunchedEffect(item.uri) {
-        pageOrder = withContext(Dispatchers.IO) { getPdfPageOrder(context, item.uri) }
+        val previews = withContext(Dispatchers.IO) { renderPdfPagePreviews(context, item.uri) }
+        pagePreviews = previews
+        pageOrder = List(previews.size) { it }
     }
 
     AlertDialog(
@@ -794,6 +845,7 @@ private fun ReorderPagesDialog(
                     if (order.size <= 1) {
                         Text("This PDF has only one page.")
                     } else {
+                        val previews = pagePreviews ?: emptyList()
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -805,6 +857,32 @@ private fun ReorderPagesDialog(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(52.dp)
+                                            .aspectRatio(0.707f)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        val preview = previews.getOrNull(page)
+                                        if (preview != null) {
+                                            Image(
+                                                bitmap = preview.asImageBitmap(),
+                                                contentDescription = "Page ${page + 1} preview",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Icon(
+                                                Icons.Default.Description,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Text(
                                         text = "Page ${page + 1}",
                                         modifier = Modifier.weight(1f),
@@ -898,11 +976,22 @@ private fun renderPdfThumbnail(context: Context, uri: Uri): Bitmap? {
     }
 }
 
-private fun getPdfPageOrder(context: Context, uri: Uri): List<Int> {
+private fun renderPdfPagePreviews(context: Context, uri: Uri): List<Bitmap?> {
     return try {
         context.contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
             PdfRenderer(fd).use { renderer ->
-                List(renderer.pageCount) { it }
+                List(renderer.pageCount) { pageIndex ->
+                    renderer.openPage(pageIndex).use { page ->
+                        val width = 220
+                        val safePageWidth = maxOf(page.width, 1)
+                        val safePageHeight = maxOf(page.height, 1)
+                        val height = (width * safePageHeight.toFloat() / safePageWidth).toInt().coerceAtLeast(1)
+                        Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+                            bitmap.eraseColor(android.graphics.Color.WHITE)
+                            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        }
+                    }
+                }
             }
         } ?: emptyList()
     } catch (_: Exception) {
@@ -1141,6 +1230,25 @@ private fun querySavedPdfs(context: Context): List<SavedPdf> {
     }
 
     return items
+}
+
+private fun queryPdfDisplayName(context: Context, uri: Uri): String? {
+    return try {
+        context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (nameIdx < 0) return@use null
+            cursor.getString(nameIdx)
+        }
+    } catch (_: Exception) {
+        null
+    }
 }
 
 private fun sharePdf(context: Context, uri: Uri, name: String) {
