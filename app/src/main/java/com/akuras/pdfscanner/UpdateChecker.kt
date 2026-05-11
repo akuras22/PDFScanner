@@ -6,6 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
 
 data class AvailableUpdate(
     val versionCode: Int,
@@ -47,10 +48,7 @@ suspend fun fetchAvailableUpdate(
             return@withContext null
         }
 
-        val downloadUrl = release.findApkAssetUrl() ?: release.optString("html_url")
-        if (downloadUrl.isBlank()) {
-            return@withContext null
-        }
+        val downloadUrl = release.findApkAssetUrl(owner, repo) ?: return@withContext null
 
         AvailableUpdate(
             versionCode = latestCode,
@@ -64,15 +62,15 @@ suspend fun fetchAvailableUpdate(
     }
 }
 
-private fun parseVersionCodeFromTag(tag: String): Int? {
+internal fun parseVersionCodeFromTag(tag: String): Int? {
     return parseVersionCode(tag)
 }
 
-private fun parseVersionCodeFromName(name: String): Int? {
+internal fun parseVersionCodeFromName(name: String): Int? {
     return parseVersionCode(name)
 }
 
-private fun parseVersionCode(input: String): Int? {
+internal fun parseVersionCode(input: String): Int? {
     if (input.isBlank()) return null
 
     // Keep parsing aligned with CI tags like v1.0 or v1.0.1 by joining numeric parts.
@@ -88,7 +86,7 @@ private fun parseVersionCode(input: String): Int? {
     return Regex("(\\d+)").find(input)?.groupValues?.getOrNull(1)?.toIntOrNull()
 }
 
-private fun isNewerVersionAvailable(
+internal fun isNewerVersionAvailable(
     latestVersionName: String,
     currentVersionName: String,
     latestVersionCode: Int,
@@ -112,7 +110,7 @@ private fun isNewerVersionAvailable(
     return latestVersionCode > currentVersionCode
 }
 
-private fun parseVersionParts(input: String): List<Int>? {
+internal fun parseVersionParts(input: String): List<Int>? {
     if (input.isBlank()) return null
     val normalized = Regex("(\\d+(?:\\.\\d+)+|\\d+)").find(input)?.groupValues?.getOrNull(1) ?: return null
     val rawParts = normalized.split('.')
@@ -121,17 +119,16 @@ private fun parseVersionParts(input: String): List<Int>? {
     return parts.ifEmpty { null }
 }
 
-private fun JSONObject.findApkAssetUrl(): String? {
+internal fun JSONObject.findApkAssetUrl(owner: String, repo: String): String? {
     val assets = optJSONArray("assets") ?: JSONArray()
     var preferredSigned: String? = null
     var preferredRegular: String? = null
-    var fallbackUnsigned: String? = null
 
     for (i in 0 until assets.length()) {
         val asset = assets.optJSONObject(i) ?: continue
         val name = asset.optString("name")
         val browserUrl = asset.optString("browser_download_url")
-        if (!name.endsWith(".apk", ignoreCase = true) || browserUrl.isBlank()) {
+        if (!name.endsWith(".apk", ignoreCase = true) || browserUrl.isBlank() || !isTrustedApkUrl(browserUrl, owner, repo)) {
             continue
         }
 
@@ -139,8 +136,18 @@ private fun JSONObject.findApkAssetUrl(): String? {
         when {
             lowerName.contains("signed") -> if (preferredSigned == null) preferredSigned = browserUrl
             !lowerName.contains("unsigned") -> if (preferredRegular == null) preferredRegular = browserUrl
-            fallbackUnsigned == null -> fallbackUnsigned = browserUrl
         }
     }
-    return preferredSigned ?: preferredRegular ?: fallbackUnsigned
+    return preferredSigned ?: preferredRegular
+}
+
+internal fun isTrustedApkUrl(url: String, owner: String, repo: String): Boolean {
+    val uri = runCatching { URL(url) }.getOrNull() ?: return false
+    if (uri.protocol.lowercase(Locale.ROOT) != "https") return false
+    val host = uri.host.lowercase(Locale.ROOT)
+    if (host == "github.com") {
+        val path = uri.path.lowercase(Locale.ROOT)
+        return path.contains("/$owner/$repo/releases/download/".lowercase(Locale.ROOT))
+    }
+    return host == "objects.githubusercontent.com"
 }
