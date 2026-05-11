@@ -3,10 +3,16 @@ package com.akuras.pdfscanner
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
+import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.pdf.PdfDocument
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -470,12 +476,6 @@ private fun ScannerScreen(
         }
     }
 }
-
-private data class SavedPdf(
-    val name: String,
-    val uri: Uri,
-    val isExternal: Boolean = false,
-)
 
 @Composable
 private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
