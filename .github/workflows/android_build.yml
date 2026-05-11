@@ -47,7 +47,7 @@ jobs:
 
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           # This uses the signed APK if signing worked, otherwise the unsigned one
