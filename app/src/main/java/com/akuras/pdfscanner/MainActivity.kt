@@ -485,14 +485,14 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         val resolver = context.contentResolver
-        val added = uris.map { uri ->
+        val added = uris.mapIndexed { index, uri ->
             try {
                 resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             } catch (e: Exception) {
-                Log.w("HistoryPanel", "Could not persist read permission for external PDF: $uri", e)
+                Log.w("HistoryPanel", "Could not persist read permission for external PDF: $uri. Merge may fail if temporary access expires.", e)
             }
             SavedPdf(
-                name = queryPdfDisplayName(context, uri) ?: "External PDF",
+                name = queryPdfDisplayName(context, uri) ?: "External PDF ${index + 1}",
                 uri = uri,
                 isExternal = true,
             )
@@ -990,7 +990,7 @@ private fun renderPdfPagePreviews(context: Context, uri: Uri): List<Bitmap?> {
                         val width = PAGE_PREVIEW_WIDTH_PX
                         val safePageWidth = maxOf(page.width, MIN_PAGE_DIMENSION_PX)
                         val safePageHeight = maxOf(page.height, MIN_PAGE_DIMENSION_PX)
-                        val height = (width * safePageHeight.toFloat() / safePageWidth).toInt().coerceAtLeast(1)
+                        val height = (width * safePageHeight.toFloat() / safePageWidth).toInt().coerceAtLeast(MIN_PAGE_DIMENSION_PX)
                         Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
                             bitmap.eraseColor(android.graphics.Color.WHITE)
                             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
