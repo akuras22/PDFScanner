@@ -108,6 +108,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
+private const val PAGE_ASPECT_RATIO = 0.707f
+private const val PAGE_PREVIEW_WIDTH_PX = 220
+private const val MIN_PAGE_DIMENSION_PX = 1
+
 class MainActivity : ComponentActivity() {
 
     private val githubOwner = "akuras22"
@@ -484,7 +488,8 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
         val added = uris.map { uri ->
             try {
                 resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.w("HistoryPanel", "Could not persist read permission for external PDF: $uri", e)
             }
             SavedPdf(
                 name = queryPdfDisplayName(context, uri) ?: "External PDF",
@@ -724,7 +729,7 @@ private fun PdfHistoryCard(
             Box(
                 modifier = Modifier
                     .width(thumbnailWidth)
-                    .aspectRatio(0.707f) // A4 ratio
+                    .aspectRatio(PAGE_ASPECT_RATIO)
                     .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
@@ -860,7 +865,7 @@ private fun ReorderPagesDialog(
                                     Box(
                                         modifier = Modifier
                                             .width(52.dp)
-                                            .aspectRatio(0.707f)
+                                            .aspectRatio(PAGE_ASPECT_RATIO)
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(MaterialTheme.colorScheme.surfaceVariant),
                                         contentAlignment = Alignment.Center
@@ -982,9 +987,9 @@ private fun renderPdfPagePreviews(context: Context, uri: Uri): List<Bitmap?> {
             PdfRenderer(fd).use { renderer ->
                 List(renderer.pageCount) { pageIndex ->
                     renderer.openPage(pageIndex).use { page ->
-                        val width = 220
-                        val safePageWidth = maxOf(page.width, 1)
-                        val safePageHeight = maxOf(page.height, 1)
+                        val width = PAGE_PREVIEW_WIDTH_PX
+                        val safePageWidth = maxOf(page.width, MIN_PAGE_DIMENSION_PX)
+                        val safePageHeight = maxOf(page.height, MIN_PAGE_DIMENSION_PX)
                         val height = (width * safePageHeight.toFloat() / safePageWidth).toInt().coerceAtLeast(1)
                         Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
                             bitmap.eraseColor(android.graphics.Color.WHITE)
