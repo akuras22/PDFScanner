@@ -11,29 +11,102 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.ParcelFileDescriptor
+import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Collections
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.core.content.FileProvider
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import com.akuras.pdfscanner.ui.theme.PDFScannerTheme
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+private const val PAGE_ASPECT_RATIO = 0.707f
+private const val PAGE_PREVIEW_WIDTH_PX = 220
+private const val MIN_PAGE_DIMENSION_PX = 1
 
 class MainActivity : ComponentActivity() {
 
@@ -312,6 +385,942 @@ private fun UpdateAvailableDialog(
     )
 }
 
+@Composable
+private fun ScannerScreen(
+    refreshTrigger: Int,
+    onScanClick: () -> Unit,
+    onSettingsClick: () -> Unit,
+) {
+    val background = Brush.verticalGradient(
+        colors = listOf(
+            MaterialTheme.colorScheme.surfaceContainer,
+            MaterialTheme.colorScheme.surface
+        )
+    )
+
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        "PDF Scanner",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                actions = {
+                    IconButton(onClick = onSettingsClick) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0f),
+                                MaterialTheme.colorScheme.surface
+                            )
+                        )
+                    )
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
+                    .navigationBarsPadding(),
+                contentAlignment = Alignment.Center
+            ) {
+                Button(
+                    onClick = onScanClick,
+                    modifier = Modifier
+                        .widthIn(max = 500.dp)
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Icon(
+                        Icons.Default.CameraAlt,
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text("Scan Document", style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        }
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(background)
+                .padding(padding),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            HistoryPanel(
+                refreshTrigger = refreshTrigger,
+                modifier = Modifier
+                    .widthIn(max = 900.dp)
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 8.dp)
+            )
+        }
+    }
+}
+
+private data class SavedPdf(
+    val name: String,
+    val uri: Uri,
+    val isExternal: Boolean = false,
+)
+
+@Composable
+private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var items by remember { mutableStateOf(emptyList<SavedPdf>()) }
+    var externalMergeItems by remember { mutableStateOf(emptyList<SavedPdf>()) }
+    var mergeMode by remember { mutableStateOf(false) }
+    var isMerging by remember { mutableStateOf(false) }
+    var selectedMergeUris by remember { mutableStateOf(setOf<String>()) }
+    var thumbnailSeed by remember { mutableIntStateOf(0) }
+    val config = LocalConfiguration.current
+    val isWide = config.screenWidthDp > 600
+    val columns = if (isWide) 2 else 1
+    val mergeCandidates = (items + externalMergeItems).distinctBy { it.uri.toString() }
+    val displayedItems = if (mergeMode) mergeCandidates else items
+    val externalPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        val resolver = context.contentResolver
+        val startIndex = externalMergeItems.size + 1
+        val added = uris.mapIndexed { index, uri ->
+            try {
+                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) {
+                Log.w("HistoryPanel", "Failed to persist read permission for $uri", e)
+            }
+            SavedPdf(
+                name = queryPdfDisplayName(context, uri) ?: "External PDF ${startIndex + index}",
+                uri = uri,
+                isExternal = true,
+            )
+        }
+        externalMergeItems = (externalMergeItems + added).distinctBy { it.uri.toString() }
+    }
+
+    LaunchedEffect(refreshTrigger) {
+        val refreshed = querySavedPdfs(context)
+        items = refreshed
+        selectedMergeUris = selectedMergeUris.filterTo(mutableSetOf()) { selected ->
+            refreshed.any { it.uri.toString() == selected } ||
+                externalMergeItems.any { it.uri.toString() == selected }
+        }
+    }
+
+    Column(modifier = modifier.fillMaxSize().animateContentSize()) {
+        Text(
+            text = "Saved PDFs",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold
+        )
+        if (items.isNotEmpty()) {
+            Text(
+                text = "${items.size} document${if (items.size != 1) "s" else ""}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        if (items.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = {
+                        mergeMode = !mergeMode
+                        if (!mergeMode) {
+                            selectedMergeUris = emptySet()
+                            externalMergeItems = emptyList()
+                        }
+                    }
+                ) {
+                    Text(if (mergeMode) "Cancel Merge" else "Merge PDFs")
+                }
+                if (mergeMode) {
+                    Text(
+                        text = "${selectedMergeUris.size} selected",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedButton(
+                        enabled = !isMerging,
+                        onClick = {
+                            externalPicker.launch(arrayOf("application/pdf"))
+                        }
+                    ) {
+                        Text("Add External PDFs")
+                    }
+                    Button(
+                        enabled = selectedMergeUris.size >= 2 && !isMerging,
+                        onClick = {
+                            val mergeUris = mergeCandidates
+                                .filter { selectedMergeUris.contains(it.uri.toString()) }
+                                .map { it.uri }
+                            scope.launch {
+                                isMerging = true
+                                val pattern = loadFileNamePattern(context)
+                                val merged = withContext(Dispatchers.IO) {
+                                    mergePdfsToDownloads(context, mergeUris, pattern)
+                                }
+                                isMerging = false
+                                if (merged != null) {
+                                    Toast.makeText(context, "PDFs merged", Toast.LENGTH_SHORT).show()
+                                    items = querySavedPdfs(context)
+                                    mergeMode = false
+                                    selectedMergeUris = emptySet()
+                                    externalMergeItems = emptyList()
+                                    thumbnailSeed++
+                                } else {
+                                    Toast.makeText(context, "Merge failed", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    ) {
+                        Text(if (isMerging) "Merging..." else "Merge Selected")
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        if (displayedItems.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Default.Description,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "No scanned documents yet",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Tap Scan Document below to get started",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 80.dp)
+            ) {
+                items(displayedItems, key = { it.uri.toString() }) { item ->
+                    PdfHistoryCard(
+                        item = item,
+                        isWide = isWide,
+                        selectionMode = mergeMode,
+                        isSelected = selectedMergeUris.contains(item.uri.toString()),
+                        thumbnailSeed = thumbnailSeed,
+                        onToggleSelected = {
+                            val key = item.uri.toString()
+                            selectedMergeUris = if (selectedMergeUris.contains(key)) {
+                                selectedMergeUris - key
+                            } else {
+                                selectedMergeUris + key
+                            }
+                        },
+                        onDeleted = { deletedUri ->
+                            items = items.filterNot { it.uri == deletedUri }
+                            selectedMergeUris = selectedMergeUris - deletedUri.toString()
+                            thumbnailSeed++
+                        },
+                        onReordered = {
+                            items = querySavedPdfs(context)
+                            thumbnailSeed++
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PdfHistoryCard(
+    item: SavedPdf,
+    isWide: Boolean = false,
+    selectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    thumbnailSeed: Int = 0,
+    onToggleSelected: () -> Unit = {},
+    onDeleted: (Uri) -> Unit,
+    onReordered: () -> Unit,
+) {
+    val context = LocalContext.current
+    val thumbnail = remember(item.uri, thumbnailSeed) { renderPdfThumbnail(context, item.uri) }
+    val thumbnailWidth = if (isWide) 100.dp else 80.dp
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showReorderDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog && !item.isExternal) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete document?") },
+            text = { Text("\"${item.name}\" will be permanently deleted.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    if (deletePdf(context, item.uri)) {
+                        onDeleted(item.uri)
+                        Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Delete failed", Toast.LENGTH_SHORT).show()
+                    }
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showReorderDialog && !item.isExternal) {
+        ReorderPagesDialog(
+            item = item,
+            onDismiss = { showReorderDialog = false },
+            onSaved = {
+                showReorderDialog = false
+                onReordered()
+            }
+        )
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                if (selectionMode) {
+                    onToggleSelected()
+                } else {
+                    openPdf(context, item.uri)
+                }
+            },
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            // PDF thumbnail
+            Box(
+                modifier = Modifier
+                    .width(thumbnailWidth)
+                    .aspectRatio(PAGE_ASPECT_RATIO)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                if (thumbnail != null) {
+                    Image(
+                        bitmap = thumbnail.asImageBitmap(),
+                        contentDescription = "PDF preview",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.Description,
+                        contentDescription = null,
+                        modifier = Modifier.size(32.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                if (selectionMode) {
+                    Text(
+                        text = if (isSelected) "Selected for merge" else "Tap to select for merge",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+                Text(
+                    text = item.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (item.isExternal) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "External PDF",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    FilledTonalIconButton(
+                        onClick = { openPdf(context, item.uri) },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open", modifier = Modifier.size(18.dp))
+                    }
+                    FilledTonalIconButton(
+                        onClick = { sharePdf(context, item.uri, item.name) },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(18.dp))
+                    }
+                    FilledTonalIconButton(
+                        onClick = { showReorderDialog = true },
+                        enabled = !item.isExternal,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(Icons.Default.Collections, contentDescription = "Pages", modifier = Modifier.size(18.dp))
+                    }
+                    FilledTonalIconButton(
+                        onClick = { showDeleteDialog = true },
+                        enabled = !item.isExternal,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReorderPagesDialog(
+    item: SavedPdf,
+    onDismiss: () -> Unit,
+    onSaved: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pageOrder by remember(item.uri) { mutableStateOf<List<Int>?>(null) }
+    var pagePreviews by remember(item.uri) { mutableStateOf<List<Bitmap?>?>(null) }
+    var isSaving by remember { mutableStateOf(false) }
+
+    LaunchedEffect(item.uri) {
+        val order = withContext(Dispatchers.IO) { getPdfPageOrder(context, item.uri) }
+        val pageCount = order.size
+        pageOrder = order
+        pagePreviews = withContext(Dispatchers.IO) { renderPdfPagePreviews(context, item.uri, pageCount) }
+    }
+
+    AlertDialog(
+        onDismissRequest = {
+            if (!isSaving) {
+                onDismiss()
+            }
+        },
+        title = { Text("Move pages") },
+        text = {
+            when (val order = pageOrder) {
+                null -> Text("Loading pages...")
+                else -> {
+                    if (order.isEmpty()) {
+                        Text("Could not load pages.")
+                    } else if (order.size == 1) {
+                        Text("This PDF has only one page.")
+                    } else {
+                        val previews = pagePreviews ?: emptyList()
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(280.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            itemsIndexed(order) { index, page ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(52.dp)
+                                            .aspectRatio(PAGE_ASPECT_RATIO)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        val preview = previews.getOrNull(page)
+                                        if (preview != null) {
+                                            Image(
+                                                bitmap = preview.asImageBitmap(),
+                                                contentDescription = "Page ${page + 1} preview",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Fit
+                                            )
+                                        } else {
+                                            Icon(
+                                                Icons.Default.Description,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Page ${page + 1}",
+                                        modifier = Modifier.weight(1f),
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    TextButton(
+                                        enabled = index > 0 && !isSaving,
+                                        onClick = {
+                                            pageOrder = order.toMutableList().apply {
+                                                val temp = this[index - 1]
+                                                this[index - 1] = this[index]
+                                                this[index] = temp
+                                            }
+                                        }
+                                    ) {
+                                        Text("Up")
+                                    }
+                                    TextButton(
+                                        enabled = index < order.lastIndex && !isSaving,
+                                        onClick = {
+                                            pageOrder = order.toMutableList().apply {
+                                                val temp = this[index + 1]
+                                                this[index + 1] = this[index]
+                                                this[index] = temp
+                                            }
+                                        }
+                                    ) {
+                                        Text("Down")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            val order = pageOrder
+            TextButton(
+                enabled = order != null && !isSaving,
+                onClick = {
+                    if (order == null) return@TextButton
+                    scope.launch {
+                        isSaving = true
+                        val saved = withContext(Dispatchers.IO) {
+                            reorderPdfPages(context, item.uri, order)
+                        }
+                        isSaving = false
+                        if (saved) {
+                            Toast.makeText(context, "Pages updated", Toast.LENGTH_SHORT).show()
+                            onSaved()
+                        } else {
+                            Toast.makeText(context, "Could not update pages", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            ) {
+                Text(if (isSaving) "Saving..." else "Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isSaving) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+private fun renderPdfThumbnail(context: Context, uri: Uri): Bitmap? {
+    return try {
+        val fd: ParcelFileDescriptor =
+            context.contentResolver.openFileDescriptor(uri, "r") ?: return null
+        val renderer = PdfRenderer(fd)
+        if (renderer.pageCount == 0) {
+            renderer.close()
+            fd.close()
+            return null
+        }
+        val page = renderer.openPage(0)
+        val width = 300
+        val height = (width * page.height.toFloat() / page.width).toInt()
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(android.graphics.Color.WHITE)
+        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+        page.close()
+        renderer.close()
+        fd.close()
+        bitmap
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun getPdfPageOrder(context: Context, uri: Uri): List<Int> {
+    return try {
+        context.contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
+            PdfRenderer(fd).use { renderer ->
+                List(renderer.pageCount) { it }
+            }
+        } ?: emptyList()
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+private fun renderPdfPagePreviews(context: Context, uri: Uri, expectedPages: Int): List<Bitmap?> {
+    return try {
+        context.contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
+            PdfRenderer(fd).use { renderer ->
+                List(renderer.pageCount) { pageIndex ->
+                    try {
+                        renderer.openPage(pageIndex).use { page ->
+                            val width = PAGE_PREVIEW_WIDTH_PX
+                            // Some malformed pages can report zero dimensions; clamp to keep bitmap math valid.
+                            val clampedPageWidth = maxOf(page.width, MIN_PAGE_DIMENSION_PX)
+                            val clampedPageHeight = maxOf(page.height, MIN_PAGE_DIMENSION_PX)
+                            val height = (width * clampedPageHeight.toFloat() / clampedPageWidth).toInt().coerceAtLeast(MIN_PAGE_DIMENSION_PX)
+                            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+                                bitmap.eraseColor(android.graphics.Color.WHITE)
+                                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("ReorderPagesDialog", "Failed to render preview for page index $pageIndex", e)
+                        null
+                    }
+                }
+            }
+        } ?: List(expectedPages) { null }
+    } catch (_: Exception) {
+        List(expectedPages) { null }
+    }
+}
+
+private fun savePdfToDownloads(context: Context, sourceUri: Uri, pattern: String): Uri? {
+    val resolver = context.contentResolver
+    val fileName = "${resolveFileName(pattern)}.pdf"
+
+    val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+    } else {
+        MediaStore.Files.getContentUri("external")
+    }
+
+    val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+        put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/PDFScanner")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+    }
+
+    val destinationUri = resolver.insert(collection, values) ?: return null
+
+    return try {
+        resolver.openInputStream(sourceUri).use { input ->
+            resolver.openOutputStream(destinationUri).use { output ->
+                if (input == null || output == null) {
+                    resolver.delete(destinationUri, null, null)
+                    return null
+                }
+                input.copyTo(output)
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val finalizeValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.IS_PENDING, 0)
+            }
+            resolver.update(destinationUri, finalizeValues, null, null)
+        }
+
+        destinationUri
+    } catch (e: IOException) {
+        resolver.delete(destinationUri, null, null)
+        null
+    }
+}
+
+private fun mergePdfsToDownloads(context: Context, sourceUris: List<Uri>, pattern: String): Uri? {
+    if (sourceUris.size < 2) return null
+
+    val resolver = context.contentResolver
+    val fileName = "${resolveFileName(pattern)}_merged.pdf"
+    val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+    } else {
+        MediaStore.Files.getContentUri("external")
+    }
+
+    val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+        put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/PDFScanner")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+    }
+
+    val destinationUri = resolver.insert(collection, values) ?: return null
+    val mergedDocument = PdfDocument()
+    return try {
+        var outputPageNumber = 0
+        sourceUris.forEach { sourceUri ->
+            outputPageNumber = appendPdfPages(context, mergedDocument, sourceUri, outputPageNumber)
+        }
+        if (outputPageNumber == 0) {
+            resolver.delete(destinationUri, null, null)
+            return null
+        }
+        resolver.openOutputStream(destinationUri)?.use { output ->
+            mergedDocument.writeTo(output)
+        } ?: run {
+            resolver.delete(destinationUri, null, null)
+            return null
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val finalizeValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.IS_PENDING, 0)
+            }
+            resolver.update(destinationUri, finalizeValues, null, null)
+        }
+        destinationUri
+    } catch (_: Exception) {
+        resolver.delete(destinationUri, null, null)
+        null
+    } finally {
+        mergedDocument.close()
+    }
+}
+
+private fun reorderPdfPages(context: Context, targetUri: Uri, pageOrder: List<Int>): Boolean {
+    if (pageOrder.isEmpty()) return false
+
+    val tempFile = try {
+        File.createTempFile("reordered_", ".pdf", context.cacheDir)
+    } catch (_: IOException) {
+        return false
+    }
+
+    val document = PdfDocument()
+    return try {
+        val sourceFd = context.contentResolver.openFileDescriptor(targetUri, "r") ?: return false
+        sourceFd.use { fd ->
+            PdfRenderer(fd).use { renderer ->
+                if (renderer.pageCount != pageOrder.size) {
+                    return false
+                }
+                var outputPageNumber = 0
+                pageOrder.forEach { sourcePageIndex ->
+                    if (sourcePageIndex !in 0 until renderer.pageCount) {
+                        return false
+                    }
+                    renderer.openPage(sourcePageIndex).use { page ->
+                        val width = maxOf(page.width, 1)
+                        val height = maxOf(page.height, 1)
+                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        bitmap.eraseColor(Color.WHITE)
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
+                        val pageInfo = PdfDocument.PageInfo.Builder(width, height, outputPageNumber + 1).create()
+                        val newPage = document.startPage(pageInfo)
+                        newPage.canvas.drawColor(Color.WHITE)
+                        newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                        document.finishPage(newPage)
+                        bitmap.recycle()
+                        outputPageNumber++
+                    }
+                }
+            }
+        }
+
+        tempFile.outputStream().use { output ->
+            document.writeTo(output)
+        }
+
+        context.contentResolver.openOutputStream(targetUri, "wt")?.use { output ->
+            tempFile.inputStream().use { input ->
+                input.copyTo(output)
+            }
+        } ?: return false
+
+        true
+    } catch (_: Exception) {
+        false
+    } finally {
+        document.close()
+        if (tempFile.exists()) {
+            tempFile.delete()
+        }
+    }
+}
+
+private fun appendPdfPages(
+    context: Context,
+    targetDocument: PdfDocument,
+    sourceUri: Uri,
+    startPageNumber: Int,
+): Int {
+    var pageNumber = startPageNumber
+    try {
+        context.contentResolver.openFileDescriptor(sourceUri, "r")?.use { fd ->
+            PdfRenderer(fd).use { renderer ->
+                for (pageIndex in 0 until renderer.pageCount) {
+                    renderer.openPage(pageIndex).use { page ->
+                        val width = maxOf(page.width, 1)
+                        val height = maxOf(page.height, 1)
+                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        bitmap.eraseColor(Color.WHITE)
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
+                        val pageInfo = PdfDocument.PageInfo.Builder(width, height, pageNumber + 1).create()
+                        val newPage = targetDocument.startPage(pageInfo)
+                        newPage.canvas.drawColor(Color.WHITE)
+                        newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                        targetDocument.finishPage(newPage)
+                        bitmap.recycle()
+                        pageNumber++
+                    }
+                }
+            }
+        }
+    } catch (_: Exception) {
+    }
+    return pageNumber
+}
+
+private fun querySavedPdfs(context: Context): List<SavedPdf> {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        return emptyList()
+    }
+
+    val resolver = context.contentResolver
+    val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+
+    val projection = arrayOf(
+        MediaStore.MediaColumns._ID,
+        MediaStore.MediaColumns.DISPLAY_NAME,
+        MediaStore.MediaColumns.MIME_TYPE,
+        MediaStore.MediaColumns.RELATIVE_PATH,
+    )
+
+    val selection = "${MediaStore.MediaColumns.MIME_TYPE}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?"
+    val args = arrayOf("application/pdf", "${Environment.DIRECTORY_DOWNLOADS}/PDFScanner/")
+
+    val items = mutableListOf<SavedPdf>()
+    resolver.query(
+        collection,
+        projection,
+        selection,
+        args,
+        "${MediaStore.MediaColumns.DATE_ADDED} DESC"
+    )?.use { cursor ->
+        val idIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+        val nameIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+
+        while (cursor.moveToNext()) {
+            val id = cursor.getLong(idIdx)
+            val name = cursor.getString(nameIdx) ?: "scan_$id.pdf"
+            val uri = ContentUris.withAppendedId(collection, id)
+            items += SavedPdf(name = name, uri = uri)
+        }
+    }
+
+    return items
+}
+
+private fun queryPdfDisplayName(context: Context, uri: Uri): String? {
+    return try {
+        context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (nameIdx < 0) return@use null
+            cursor.getString(nameIdx)
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun sharePdf(context: Context, uri: Uri, name: String) {
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "application/pdf"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_SUBJECT, name)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    context.startActivity(Intent.createChooser(intent, "Share PDF"))
+}
+
+private fun openPdf(context: Context, uri: Uri) {
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, "application/pdf")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    try {
+        context.startActivity(Intent.createChooser(intent, "Open PDF"))
+    } catch (e: ActivityNotFoundException) {
+        Toast.makeText(context, "No app can open PDFs", Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun deletePdf(context: Context, uri: Uri): Boolean {
+    return try {
+        context.contentResolver.delete(uri, null, null) > 0
+    } catch (e: SecurityException) {
+        false
+    }
+}
 private fun getCurrentVersionCode(context: Context): Int {
     return try {
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
