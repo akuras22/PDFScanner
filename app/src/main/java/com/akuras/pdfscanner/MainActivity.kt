@@ -489,10 +489,10 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
             try {
                 resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             } catch (e: Exception) {
-                Log.w("HistoryPanel", "Could not persist read permission for external PDF: $uri. It can still merge now, but may fail later if access expires.", e)
+                Log.w("HistoryPanel", "Failed to persist read permission for $uri", e)
             }
             SavedPdf(
-                name = queryPdfDisplayName(context, uri) ?: "External PDF ${uri.hashCode().toUInt()}",
+                name = queryPdfDisplayName(context, uri) ?: "External PDF ${uri.toString().hashCode().toUInt().toString(16)}",
                 uri = uri,
                 isExternal = true,
             )
@@ -831,9 +831,9 @@ private fun ReorderPagesDialog(
     var isSaving by remember { mutableStateOf(false) }
 
     LaunchedEffect(item.uri) {
-        val previews = withContext(Dispatchers.IO) { renderPdfPagePreviews(context, item.uri) }
-        pagePreviews = previews
-        pageOrder = List(previews.size) { it }
+        val order = withContext(Dispatchers.IO) { getPdfPageOrder(context, item.uri) }
+        pageOrder = order
+        pagePreviews = withContext(Dispatchers.IO) { renderPdfPagePreviews(context, item.uri, order.size) }
     }
 
     AlertDialog(
@@ -847,7 +847,9 @@ private fun ReorderPagesDialog(
             when (val order = pageOrder) {
                 null -> Text("Loading pages...")
                 else -> {
-                    if (order.size <= 1) {
+                    if (order.isEmpty()) {
+                        Text("Could not load pages.")
+                    } else if (order.size == 1) {
                         Text("This PDF has only one page.")
                     } else {
                         val previews = pagePreviews ?: emptyList()
@@ -981,26 +983,42 @@ private fun renderPdfThumbnail(context: Context, uri: Uri): Bitmap? {
     }
 }
 
-private fun renderPdfPagePreviews(context: Context, uri: Uri): List<Bitmap?> {
+private fun getPdfPageOrder(context: Context, uri: Uri): List<Int> {
     return try {
         context.contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
             PdfRenderer(fd).use { renderer ->
-                List(renderer.pageCount) { pageIndex ->
-                    renderer.openPage(pageIndex).use { page ->
-                        val width = PAGE_PREVIEW_WIDTH_PX
-                        val safePageWidth = maxOf(page.width, MIN_PAGE_DIMENSION_PX)
-                        val safePageHeight = maxOf(page.height, MIN_PAGE_DIMENSION_PX)
-                        val height = (width * safePageHeight.toFloat() / safePageWidth).toInt().coerceAtLeast(MIN_PAGE_DIMENSION_PX)
-                        Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
-                            bitmap.eraseColor(android.graphics.Color.WHITE)
-                            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        }
-                    }
-                }
+                List(renderer.pageCount) { it }
             }
         } ?: emptyList()
     } catch (_: Exception) {
         emptyList()
+    }
+}
+
+private fun renderPdfPagePreviews(context: Context, uri: Uri, expectedPages: Int): List<Bitmap?> {
+    return try {
+        context.contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
+            PdfRenderer(fd).use { renderer ->
+                List(renderer.pageCount) { pageIndex ->
+                    try {
+                        renderer.openPage(pageIndex).use { page ->
+                            val width = PAGE_PREVIEW_WIDTH_PX
+                            val clampedPageWidth = maxOf(page.width, MIN_PAGE_DIMENSION_PX)
+                            val clampedPageHeight = maxOf(page.height, MIN_PAGE_DIMENSION_PX)
+                            val height = (width * clampedPageHeight.toFloat() / clampedPageWidth).toInt().coerceAtLeast(MIN_PAGE_DIMENSION_PX)
+                            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+                                bitmap.eraseColor(android.graphics.Color.WHITE)
+                                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            }
+                        }
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+            }
+        } ?: List(expectedPages) { null }
+    } catch (_: Exception) {
+        List(expectedPages) { null }
     }
 }
 
