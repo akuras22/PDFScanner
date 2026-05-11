@@ -833,8 +833,9 @@ private fun ReorderPagesDialog(
 
     LaunchedEffect(item.uri) {
         val order = withContext(Dispatchers.IO) { getPdfPageOrder(context, item.uri) }
+        val pageCount = order.size
         pageOrder = order
-        pagePreviews = withContext(Dispatchers.IO) { renderPdfPagePreviews(context, item.uri, order.size) }
+        pagePreviews = withContext(Dispatchers.IO) { renderPdfPagePreviews(context, item.uri, pageCount) }
     }
 
     AlertDialog(
@@ -1004,6 +1005,7 @@ private fun renderPdfPagePreviews(context: Context, uri: Uri, expectedPages: Int
                     try {
                         renderer.openPage(pageIndex).use { page ->
                             val width = PAGE_PREVIEW_WIDTH_PX
+                            // Some malformed pages can report zero dimensions; clamp to keep bitmap math valid.
                             val clampedPageWidth = maxOf(page.width, MIN_PAGE_DIMENSION_PX)
                             val clampedPageHeight = maxOf(page.height, MIN_PAGE_DIMENSION_PX)
                             val height = (width * clampedPageHeight.toFloat() / clampedPageWidth).toInt().coerceAtLeast(MIN_PAGE_DIMENSION_PX)
@@ -1012,7 +1014,8 @@ private fun renderPdfPagePreviews(context: Context, uri: Uri, expectedPages: Int
                                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                             }
                         }
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        Log.w("ReorderPagesDialog", "Failed to render preview for page index $pageIndex", e)
                         null
                     }
                 }
