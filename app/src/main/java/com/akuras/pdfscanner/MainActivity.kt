@@ -425,80 +425,9 @@ private fun UpdateAvailableDialog(
         dismissButton = {
             androidx.compose.material3.TextButton(onClick = onDismiss) {
                 androidx.compose.material3.Text(stringResource(R.string.later))
-            }
-        }
-)
 }
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        "PDF Scanner",
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                actions = {
-                    IconButton(onClick = onSettingsClick) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
-                    }
-                }
-            )
-        },
-        bottomBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.surface.copy(alpha = 0f),
-                                MaterialTheme.colorScheme.surface
-                            )
-                        )
-                    )
-                    .padding(horizontal = 24.dp, vertical = 16.dp)
-                    .navigationBarsPadding(),
-                contentAlignment = Alignment.Center
-            ) {
-                Button(
-                    onClick = onScanClick,
-                    modifier = Modifier
-                        .widthIn(max = 500.dp)
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(28.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                ) {
-                    Icon(
-                        Icons.Default.CameraAlt,
-                        contentDescription = null,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text("Scan Document", style = MaterialTheme.typography.titleMedium)
-                }
-            }
         }
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(background)
-                .padding(padding),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            HistoryPanel(
-                refreshTrigger = refreshTrigger,
-                modifier = Modifier
-                    .widthIn(max = 900.dp)
-                    .padding(horizontal = 16.dp)
-                    .padding(top = 8.dp)
-            )
-        }
-    }
+    )
 }
 
 @Composable
