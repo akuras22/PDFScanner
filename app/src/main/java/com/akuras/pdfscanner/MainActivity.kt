@@ -10,7 +10,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.pdf.PdfDocument
 import android.graphics.pdf.PdfRenderer
@@ -25,6 +24,8 @@ import android.provider.Settings
 import android.util.Log
 import android.util.LruCache
 import android.widget.Toast
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -164,6 +165,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val isDark = resolveDarkTheme(this, loadThemeMode(this))
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = !isDark
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightNavigationBars = !isDark
 
         setContent {
             PDFScannerTheme(darkTheme = resolveDarkTheme(this@MainActivity, loadThemeMode(this@MainActivity))) {

@@ -26,8 +26,11 @@ private const val TAG = "PdfStorage"
 
 enum class PdfSortOrder {
     DATE_DESC,
+    DATE_ASC,
     NAME_ASC,
+    NAME_DESC,
     SIZE_DESC,
+    SIZE_ASC,
 }
 
 data class SavedPdf(
@@ -79,8 +82,11 @@ object PdfStorage {
         val items = mutableListOf<SavedPdf>()
         val sort = when (sortOrder) {
             PdfSortOrder.DATE_DESC -> "${MediaStore.MediaColumns.DATE_ADDED} DESC"
+            PdfSortOrder.DATE_ASC -> "${MediaStore.MediaColumns.DATE_ADDED} ASC"
             PdfSortOrder.NAME_ASC -> "${MediaStore.MediaColumns.DISPLAY_NAME} COLLATE NOCASE ASC"
+            PdfSortOrder.NAME_DESC -> "${MediaStore.MediaColumns.DISPLAY_NAME} COLLATE NOCASE DESC"
             PdfSortOrder.SIZE_DESC -> "${MediaStore.MediaColumns.SIZE} DESC"
+            PdfSortOrder.SIZE_ASC -> "${MediaStore.MediaColumns.SIZE} ASC"
         }
         try {
             resolver.query(

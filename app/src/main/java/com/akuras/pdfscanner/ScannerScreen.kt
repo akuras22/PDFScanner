@@ -8,6 +8,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,8 +40,11 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FindInPage
+import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -50,8 +54,6 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -73,7 +75,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -158,6 +159,8 @@ fun ScannerScreen(
                 onDelete = historyViewModel::delete,
                 onRename = historyViewModel::rename,
                 onReordered = historyViewModel::onReordered,
+                showSearch = showSearch,
+                onToggleSearch = { showSearch = !showSearch },
                 modifier = Modifier
                     .widthIn(max = 900.dp)
                     .padding(horizontal = 16.dp)
@@ -181,6 +184,8 @@ private fun HistoryPanel(
     onDelete: (Uri) -> Unit,
     onRename: (Uri, String) -> Unit,
     onReordered: (Boolean) -> Unit,
+    showSearch: Boolean,
+    onToggleSearch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -190,26 +195,7 @@ private fun HistoryPanel(
     val selectedCount = uiState.selectedMergeUris.size
     var renameTarget by remember { mutableStateOf<SavedPdf?>(null) }
     var previewTarget by remember { mutableStateOf<SavedPdf?>(null) }
-    var backupTarget by remember { mutableStateOf<SavedPdf?>(null) }
-    val scope = rememberCoroutineScope()
-    val backupLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/pdf")
-    ) { uri ->
-        val target = backupTarget
-        if (uri != null && target != null) {
-            scope.launch {
-                val ok = withContext(Dispatchers.IO) {
-                    PdfStorage.copyPdfToUri(context, target.uri, uri)
-                }
-                Toast.makeText(
-                    context,
-                    if (ok) context.getString(R.string.toast_backup_success) else context.getString(R.string.toast_backup_failed),
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-        }
-        backupTarget = null
-    }
+    var showSearch by remember { mutableStateOf(false) }
 
     if (renameTarget != null) {
         RenamePdfDialog(
@@ -229,61 +215,51 @@ private fun HistoryPanel(
     }
 
     Column(modifier = modifier.fillMaxSize().animateContentSize()) {
-        Text(
-            text = stringResource(R.string.saved_pdfs),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold
-        )
-        if (uiState.items.isNotEmpty()) {
-            Text(
-                text = stringResource(R.string.documents_count, uiState.items.size),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        OutlinedTextField(
-            value = uiState.searchQuery,
-            onValueChange = onSetSearch,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            label = { Text(stringResource(R.string.search_documents)) },
-            leadingIcon = { Icon(Icons.Default.FindInPage, contentDescription = null) }
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        var sortExpanded by rememberSaveable { mutableStateOf(false) }
-        ExposedDropdownMenuBox(
-            expanded = sortExpanded,
-            onExpandedChange = { sortExpanded = !sortExpanded }
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            OutlinedTextField(
-                value = when (uiState.sortOrder) {
-                    PdfSortOrder.DATE_DESC -> stringResource(R.string.sort_date)
-                    PdfSortOrder.NAME_ASC -> stringResource(R.string.sort_name)
-                    PdfSortOrder.SIZE_DESC -> stringResource(R.string.sort_size)
-                },
-                onValueChange = {},
-                readOnly = true,
-                label = { Text(stringResource(R.string.sort_by)) },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sortExpanded) },
-                modifier = Modifier
-                    .menuAnchor()
-                    .fillMaxWidth()
-            )
-            ExposedDropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.sort_date)) },
-                    onClick = { onSetSort(PdfSortOrder.DATE_DESC); sortExpanded = false }
+            Column {
+                Text(
+                    text = stringResource(R.string.saved_pdfs),
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
                 )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.sort_name)) },
-                    onClick = { onSetSort(PdfSortOrder.NAME_ASC); sortExpanded = false }
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.sort_size)) },
-                    onClick = { onSetSort(PdfSortOrder.SIZE_DESC); sortExpanded = false }
+                if (uiState.items.isNotEmpty()) {
+                    Text(
+                        text = stringResource(R.string.documents_count, uiState.items.size),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                IconButton(onClick = onToggleSearch) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = stringResource(R.string.search_documents),
+                        tint = if (showSearch) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                SortDropdown(
+                    currentSort = uiState.sortOrder,
+                    onSortSelected = onSetSort
                 )
             }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        if (showSearch) {
+            OutlinedTextField(
+                value = uiState.searchQuery,
+                onValueChange = onSetSearch,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text(stringResource(R.string.search_documents)) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                shape = RoundedCornerShape(24.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
         }
         Spacer(modifier = Modifier.height(12.dp))
         if (uiState.items.isNotEmpty()) {
@@ -369,14 +345,64 @@ private fun HistoryPanel(
                         onDeleted = onDelete,
                         onRename = { renameTarget = it },
                         onPreview = { previewTarget = it },
-                        onBackup = {
-                            backupTarget = it
-                            backupLauncher.launch(it.name)
-                        },
                         onReordered = onReordered
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SortDropdown(
+    currentSort: PdfSortOrder,
+    onSortSelected: (PdfSortOrder) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        TextButton(
+            onClick = { expanded = true },
+            contentPadding = PaddingValues(horizontal = 8.dp)
+        ) {
+            Icon(Icons.Default.Sort, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                when (currentSort) {
+                    PdfSortOrder.DATE_DESC, PdfSortOrder.DATE_ASC -> "Date"
+                    PdfSortOrder.NAME_ASC, PdfSortOrder.NAME_DESC -> "Name"
+                    PdfSortOrder.SIZE_DESC, PdfSortOrder.SIZE_ASC -> "Size"
+                },
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
+        androidx.compose.material3.DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("Date (newest first)") },
+                onClick = { onSortSelected(PdfSortOrder.DATE_DESC); expanded = false }
+            )
+            DropdownMenuItem(
+                text = { Text("Date (oldest first)") },
+                onClick = { onSortSelected(PdfSortOrder.DATE_ASC); expanded = false }
+            )
+            DropdownMenuItem(
+                text = { Text("Name (A-Z)") },
+                onClick = { onSortSelected(PdfSortOrder.NAME_ASC); expanded = false }
+            )
+            DropdownMenuItem(
+                text = { Text("Name (Z-A)") },
+                onClick = { onSortSelected(PdfSortOrder.NAME_DESC); expanded = false }
+            )
+            DropdownMenuItem(
+                text = { Text("Size (largest first)") },
+                onClick = { onSortSelected(PdfSortOrder.SIZE_DESC); expanded = false }
+            )
+            DropdownMenuItem(
+                text = { Text("Size (smallest first)") },
+                onClick = { onSortSelected(PdfSortOrder.SIZE_ASC); expanded = false }
+            )
         }
     }
 }
@@ -392,7 +418,6 @@ private fun PdfHistoryCard(
     onDeleted: (Uri) -> Unit,
     onRename: (SavedPdf) -> Unit,
     onPreview: (SavedPdf) -> Unit,
-    onBackup: (SavedPdf) -> Unit,
     onReordered: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -516,12 +541,6 @@ private fun PdfHistoryCard(
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     FilledTonalIconButton(
-                        onClick = { onPreview(item) },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(Icons.Default.FindInPage, contentDescription = stringResource(R.string.preview), modifier = Modifier.size(18.dp))
-                    }
-                    FilledTonalIconButton(
                         onClick = { PdfStorage.sharePdf(context, item.uri, item.name) },
                         modifier = Modifier.size(40.dp)
                     ) {
@@ -538,12 +557,6 @@ private fun PdfHistoryCard(
                         modifier = Modifier.size(40.dp)
                     ) {
                         Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.rename), modifier = Modifier.size(18.dp))
-                    }
-                    FilledTonalIconButton(
-                        onClick = { onBackup(item) },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(Icons.Default.FileDownload, contentDescription = stringResource(R.string.backup_export), modifier = Modifier.size(18.dp))
                     }
                     FilledTonalIconButton(
                         onClick = { showExportDialog = true },
@@ -827,16 +840,40 @@ private fun PdfPreviewDialog(
     val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, item.uri, page) {
         value = withContext(Dispatchers.IO) { PdfStorage.renderPdfPage(context, item.uri, page) }
     }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.preview)) },
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(stringResource(R.string.preview))
+                TextButton(onClick = { PdfStorage.openPdf(context, item.uri) }) {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Open", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(380.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)),
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp))
+                        .pointerInput(pageCount) {
+                            detectHorizontalDragGestures { change, dragAmount ->
+                                change.consume()
+                                if (dragAmount < -50 && pageCount != null && page < pageCount - 1) {
+                                    page++
+                                } else if (dragAmount > 50 && page > 0) {
+                                    page--
+                                }
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     if (bitmap != null) {
@@ -850,15 +887,27 @@ private fun PdfPreviewDialog(
                         CircularProgressIndicator()
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(stringResource(R.string.page_x_of_y, page + 1, pageCount ?: 0))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { if (page > 0) page-- }, enabled = page > 0) { Text(stringResource(R.string.up)) }
-                    TextButton(
-                        onClick = { if (pageCount != null && page < pageCount!! - 1) page++ },
-                        enabled = pageCount != null && page < pageCount!! - 1
-                    ) { Text(stringResource(R.string.down)) }
+                Spacer(modifier = Modifier.height(12.dp))
+                // Page indicator dots
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val count = pageCount ?: 0
+                    repeat(count) { index ->
+                        Box(
+                            modifier = Modifier
+                                .size(if (index == page) 8.dp else 6.dp)
+                                .background(
+                                    if (index == page) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    RoundedCornerShape(4.dp)
+                                )
+                        )
+                    }
                 }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "${page + 1} / ${pageCount ?: 0}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         },
         confirmButton = {},
