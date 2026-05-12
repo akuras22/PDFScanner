@@ -26,8 +26,8 @@ android {
         applicationId = "com.akuras.pdfscanner"
         minSdk = 34
         targetSdk = 35
-        versionCode = ciVersionCode ?: 3
-        versionName = ciVersionName ?: "1.8.4"
+        versionCode = ciVersionCode ?: 4
+        versionName = ciVersionName ?: "1.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
