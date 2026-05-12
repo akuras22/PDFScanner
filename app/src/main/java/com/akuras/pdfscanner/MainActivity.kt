@@ -1512,6 +1512,7 @@ private fun reorderPdfPages(context: Context, targetUri: Uri, pageOrder: List<In
     }
 
     val document = PdfDocument()
+    val scaleMatrix = Matrix().apply { setScale(1f / RENDER_SCALE, 1f / RENDER_SCALE) }
     return try {
         val sourceFd = context.contentResolver.openFileDescriptor(targetUri, "r") ?: return false
         sourceFd.use { fd ->
@@ -1536,9 +1537,7 @@ private fun reorderPdfPages(context: Context, targetUri: Uri, pageOrder: List<In
                         val pageInfo = PdfDocument.PageInfo.Builder(width, height, outputPageNumber + 1).create()
                         val newPage = document.startPage(pageInfo)
                         newPage.canvas.drawColor(Color.WHITE)
-                        val matrix = Matrix()
-                        matrix.setScale(1f / RENDER_SCALE, 1f / RENDER_SCALE)
-                        newPage.canvas.drawBitmap(bitmap, matrix, null)
+                        newPage.canvas.drawBitmap(bitmap, scaleMatrix, null)
                         document.finishPage(newPage)
                         bitmap.recycle()
                         outputPageNumber++
@@ -1575,6 +1574,7 @@ private fun appendPdfPages(
     startPageNumber: Int,
 ): Int {
     var pageNumber = startPageNumber
+    val scaleMatrix = Matrix().apply { setScale(1f / RENDER_SCALE, 1f / RENDER_SCALE) }
     try {
         context.contentResolver.openFileDescriptor(sourceUri, "r")?.use { fd ->
             PdfRenderer(fd).use { renderer ->
@@ -1588,9 +1588,7 @@ private fun appendPdfPages(
                         val pageInfo = PdfDocument.PageInfo.Builder(width, height, pageNumber + 1).create()
                         val newPage = targetDocument.startPage(pageInfo)
                         newPage.canvas.drawColor(Color.WHITE)
-                        val matrix = Matrix()
-                        matrix.setScale(1f / RENDER_SCALE, 1f / RENDER_SCALE)
-                        newPage.canvas.drawBitmap(bitmap, matrix, null)
+                        newPage.canvas.drawBitmap(bitmap, scaleMatrix, null)
                         targetDocument.finishPage(newPage)
                         bitmap.recycle()
                         pageNumber++
