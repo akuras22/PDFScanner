@@ -56,10 +56,13 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -69,6 +72,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -490,8 +494,10 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
     var externalMergeItems by remember { mutableStateOf(emptyList<SavedPdf>()) }
     var mergeMode by remember { mutableStateOf(false) }
     var isMerging by remember { mutableStateOf(false) }
-    var selectedMergeUris by remember { mutableStateOf(setOf<String>()) }
+    // List (not Set) so insertion order = merge order
+    var selectedMergeUris by remember { mutableStateOf(listOf<String>()) }
     var thumbnailSeed by remember { mutableIntStateOf(0) }
+    var showMergePreview by remember { mutableStateOf(false) }
     val config = LocalConfiguration.current
     val isWide = config.screenWidthDp > 600
     val columns = if (isWide) 2 else 1
@@ -518,16 +524,56 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
                 isExternal = true,
             )
         }
-        externalMergeItems = (externalMergeItems + added).distinctBy { it.uri.toString() }
+        val newExternal = (externalMergeItems + added).distinctBy { it.uri.toString() }
+        externalMergeItems = newExternal
+        // Auto-select newly added external PDFs
+        val newKeys = added.map { it.uri.toString() }
+        selectedMergeUris = (selectedMergeUris + newKeys).distinct()
     }
 
     LaunchedEffect(refreshTrigger) {
         val refreshed = querySavedPdfs(context)
         items = refreshed
-        selectedMergeUris = selectedMergeUris.filterTo(mutableSetOf()) { selected ->
+        selectedMergeUris = selectedMergeUris.filter { selected ->
             refreshed.any { it.uri.toString() == selected } ||
                 externalMergeItems.any { it.uri.toString() == selected }
         }
+    }
+
+    // Merge preview dialog — shown before actually merging so the user can reorder
+    if (showMergePreview) {
+        val orderedItems = selectedMergeUris.mapNotNull { key ->
+            mergeCandidates.find { it.uri.toString() == key }
+        }
+        MergePreviewDialog(
+            orderedItems = orderedItems,
+            thumbnailDispatcher = thumbnailDispatcher,
+            thumbnailCache = thumbnailCache,
+            thumbnailRenderMutex = thumbnailRenderMutex,
+            onDismiss = { showMergePreview = false },
+            onConfirm = { confirmedItems ->
+                showMergePreview = false
+                val mergeUris = confirmedItems.map { it.uri }
+                scope.launch {
+                    isMerging = true
+                    val pattern = loadFileNamePattern(context)
+                    val merged = withContext(Dispatchers.IO) {
+                        mergePdfsToDownloads(context, mergeUris, pattern)
+                    }
+                    isMerging = false
+                    if (merged != null) {
+                        Toast.makeText(context, "PDFs merged", Toast.LENGTH_SHORT).show()
+                        items = querySavedPdfs(context)
+                        mergeMode = false
+                        selectedMergeUris = emptyList()
+                        externalMergeItems = emptyList()
+                        thumbnailSeed++
+                    } else {
+                        Toast.makeText(context, "Merge failed", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -557,7 +603,7 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
                         onClick = {
                             mergeMode = !mergeMode
                             if (!mergeMode) {
-                                selectedMergeUris = emptySet()
+                                selectedMergeUris = emptyList()
                                 externalMergeItems = emptyList()
                             }
                         }
@@ -589,29 +635,7 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
                         Button(
                             modifier = Modifier.weight(1f),
                             enabled = selectedMergeUris.size >= 2 && !isMerging,
-                            onClick = {
-                                val mergeUris = mergeCandidates
-                                    .filter { selectedMergeUris.contains(it.uri.toString()) }
-                                    .map { it.uri }
-                                scope.launch {
-                                    isMerging = true
-                                    val pattern = loadFileNamePattern(context)
-                                    val merged = withContext(Dispatchers.IO) {
-                                        mergePdfsToDownloads(context, mergeUris, pattern)
-                                    }
-                                    isMerging = false
-                                    if (merged != null) {
-                                        Toast.makeText(context, "PDFs merged", Toast.LENGTH_SHORT).show()
-                                        items = querySavedPdfs(context)
-                                        mergeMode = false
-                                        selectedMergeUris = emptySet()
-                                        externalMergeItems = emptyList()
-                                        thumbnailSeed++
-                                    } else {
-                                        Toast.makeText(context, "Merge failed", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            }
+                            onClick = { showMergePreview = true }
                         ) {
                             Text(if (isMerging) "Merging..." else "Merge Selected")
                         }
@@ -659,17 +683,19 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
                 contentPadding = PaddingValues(bottom = 80.dp)
             ) {
                 items(displayedItems, key = { it.uri.toString() }) { item ->
+                    val key = item.uri.toString()
+                    val mergePosition = if (mergeMode) selectedMergeUris.indexOf(key).takeIf { it >= 0 }?.plus(1) else null
                     PdfHistoryCard(
                         item = item,
                         isWide = isWide,
                         selectionMode = mergeMode,
-                        isSelected = selectedMergeUris.contains(item.uri.toString()),
+                        isSelected = selectedMergeUris.contains(key),
+                        mergePosition = mergePosition,
                         thumbnailSeed = thumbnailSeed,
                         thumbnailDispatcher = thumbnailDispatcher,
                         thumbnailCache = thumbnailCache,
                         thumbnailRenderMutex = thumbnailRenderMutex,
                         onToggleSelected = {
-                            val key = item.uri.toString()
                             selectedMergeUris = if (selectedMergeUris.contains(key)) {
                                 selectedMergeUris - key
                             } else {
@@ -698,6 +724,7 @@ private fun PdfHistoryCard(
     isWide: Boolean = false,
     selectionMode: Boolean = false,
     isSelected: Boolean = false,
+    mergePosition: Int? = null,
     thumbnailSeed: Int = 0,
     thumbnailDispatcher: CoroutineDispatcher,
     thumbnailCache: LruCache<String, Bitmap>,
@@ -707,6 +734,7 @@ private fun PdfHistoryCard(
     onReordered: () -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val thumbnailKey = remember(item.uri, thumbnailSeed) { "${item.uri}#$thumbnailSeed" }
     val thumbnail by produceState<Bitmap?>(initialValue = thumbnailCache.get(thumbnailKey), thumbnailKey) {
         if (value == null) {
@@ -722,6 +750,7 @@ private fun PdfHistoryCard(
     val thumbnailWidth = if (isWide) 100.dp else 80.dp
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showReorderDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
 
     if (showDeleteDialog && !item.isExternal) {
         AlertDialog(
@@ -760,6 +789,13 @@ private fun PdfHistoryCard(
         )
     }
 
+    if (showExportDialog) {
+        ExportDialog(
+            item = item,
+            onDismiss = { showExportDialog = false }
+        )
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -779,7 +815,7 @@ private fun PdfHistoryCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.Top
         ) {
-            // PDF thumbnail
+            // PDF thumbnail with optional merge-position badge
             Box(
                 modifier = Modifier
                     .width(thumbnailWidth)
@@ -803,6 +839,22 @@ private fun PdfHistoryCard(
                         modifier = Modifier.size(32.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                     )
+                }
+                if (mergePosition != null) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(4.dp)
+                            .size(20.dp)
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "$mergePosition",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
                 }
             }
 
@@ -856,6 +908,12 @@ private fun PdfHistoryCard(
                         Icon(Icons.Default.Collections, contentDescription = "Pages", modifier = Modifier.size(18.dp))
                     }
                     FilledTonalIconButton(
+                        onClick = { showExportDialog = true },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(Icons.Default.FileDownload, contentDescription = "Export", modifier = Modifier.size(18.dp))
+                    }
+                    FilledTonalIconButton(
                         onClick = { showDeleteDialog = true },
                         enabled = !item.isExternal,
                         modifier = Modifier.size(40.dp)
@@ -872,6 +930,252 @@ private fun PdfHistoryCard(
         }
     }
 }
+
+@Composable
+private fun ExportDialog(
+    item: SavedPdf,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isExporting by remember { mutableStateOf(false) }
+    val baseName = remember(item.name) {
+        item.name.removeSuffix(".pdf").take(60).ifBlank { "export" }
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!isExporting) onDismiss() },
+        title = { Text("Export as") },
+        text = {
+            if (isExporting) {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        androidx.compose.material3.CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Exporting…")
+                    }
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ExportOption(label = "PNG — all pages as separate images") {
+                        scope.launch {
+                            isExporting = true
+                            val count = withContext(Dispatchers.IO) {
+                                PdfStorage.exportPdfAsPngs(context, item.uri, baseName)
+                            }
+                            isExporting = false
+                            if (count > 0) {
+                                Toast.makeText(context, "Pages saved to Downloads/PDFScanner", Toast.LENGTH_LONG).show()
+                            } else {
+                                Toast.makeText(context, "Export failed", Toast.LENGTH_SHORT).show()
+                            }
+                            onDismiss()
+                        }
+                    }
+                    ExportOption(label = "HTML — web page with embedded images") {
+                        scope.launch {
+                            isExporting = true
+                            val ok = withContext(Dispatchers.IO) {
+                                PdfStorage.exportPdfAsHtml(context, item.uri, baseName)
+                            }
+                            isExporting = false
+                            Toast.makeText(
+                                context,
+                                if (ok) "HTML saved to Downloads/PDFScanner" else "Export failed",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            onDismiss()
+                        }
+                    }
+                    ExportOption(label = "DOCX — Word document with page images") {
+                        scope.launch {
+                            isExporting = true
+                            val ok = withContext(Dispatchers.IO) {
+                                PdfStorage.exportPdfAsDocx(context, item.uri, baseName)
+                            }
+                            isExporting = false
+                            Toast.makeText(
+                                context,
+                                if (ok) "DOCX saved to Downloads/PDFScanner" else "Export failed",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            onDismiss()
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isExporting) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun ExportOption(label: String, onClick: () -> Unit) {
+    androidx.compose.material3.OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun MergePreviewDialog(
+    orderedItems: List<SavedPdf>,
+    thumbnailDispatcher: CoroutineDispatcher,
+    thumbnailCache: LruCache<String, Bitmap>,
+    thumbnailRenderMutex: Mutex,
+    onDismiss: () -> Unit,
+    onConfirm: (List<SavedPdf>) -> Unit,
+) {
+    var items by remember { mutableStateOf(orderedItems) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Merge Order") },
+        text = {
+            Column {
+                Text(
+                    "Reorder PDFs before merging",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(320.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    itemsIndexed(items) { index, pdf ->
+                        MergePreviewRow(
+                            pdf = pdf,
+                            position = index + 1,
+                            canMoveUp = index > 0,
+                            canMoveDown = index < items.lastIndex,
+                            thumbnailDispatcher = thumbnailDispatcher,
+                            thumbnailCache = thumbnailCache,
+                            thumbnailRenderMutex = thumbnailRenderMutex,
+                            onMoveUp = {
+                                items = items.toMutableList().apply {
+                                    val tmp = this[index - 1]; this[index - 1] = this[index]; this[index] = tmp
+                                }
+                            },
+                            onMoveDown = {
+                                items = items.toMutableList().apply {
+                                    val tmp = this[index + 1]; this[index + 1] = this[index]; this[index] = tmp
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(items) }) {
+                Text("Merge")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun MergePreviewRow(
+    pdf: SavedPdf,
+    position: Int,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    thumbnailDispatcher: CoroutineDispatcher,
+    thumbnailCache: LruCache<String, Bitmap>,
+    thumbnailRenderMutex: Mutex,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+) {
+    val context = LocalContext.current
+    val thumbnailKey = remember(pdf.uri) { pdf.uri.toString() }
+    val thumbnail by produceState<Bitmap?>(initialValue = thumbnailCache.get(thumbnailKey), thumbnailKey) {
+        if (value == null) {
+            value = withContext(thumbnailDispatcher) {
+                thumbnailRenderMutex.withLock {
+                    thumbnailCache.get(thumbnailKey) ?: renderPdfThumbnail(context, pdf.uri)?.also {
+                        thumbnailCache.put(thumbnailKey, it)
+                    }
+                }
+            }
+        }
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Position badge
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "$position",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimary
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        // Thumbnail
+        Box(
+            modifier = Modifier
+                .width(44.dp)
+                .aspectRatio(PAGE_ASPECT_RATIO)
+                .clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            val bmp = thumbnail
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    Icons.Default.Description,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = pdf.name,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        IconButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.ArrowUpward, contentDescription = "Move up", modifier = Modifier.size(16.dp))
+        }
+        IconButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.ArrowDownward, contentDescription = "Move down", modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+
 
 @Composable
 private fun ReorderPagesDialog(
@@ -898,21 +1202,19 @@ private fun ReorderPagesDialog(
                 onDismiss()
             }
         },
-        title = { Text("Move pages") },
+        title = { Text("Manage pages") },
         text = {
             when (val order = pageOrder) {
                 null -> Text("Loading pages...")
                 else -> {
                     if (order.isEmpty()) {
                         Text("Could not load pages.")
-                    } else if (order.size == 1) {
-                        Text("This PDF has only one page.")
                     } else {
                         val previews = pagePreviews ?: emptyList()
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(280.dp),
+                                .height(320.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             itemsIndexed(order) { index, page ->
@@ -922,7 +1224,7 @@ private fun ReorderPagesDialog(
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .width(52.dp)
+                                            .width(44.dp)
                                             .aspectRatio(PAGE_ASPECT_RATIO)
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(MaterialTheme.colorScheme.surfaceVariant),
@@ -945,13 +1247,13 @@ private fun ReorderPagesDialog(
                                             )
                                         }
                                     }
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = "Page ${page + 1}",
                                         modifier = Modifier.weight(1f),
                                         style = MaterialTheme.typography.bodyMedium
                                     )
-                                    TextButton(
+                                    IconButton(
                                         enabled = index > 0 && !isSaving,
                                         onClick = {
                                             pageOrder = order.toMutableList().apply {
@@ -959,11 +1261,12 @@ private fun ReorderPagesDialog(
                                                 this[index - 1] = this[index]
                                                 this[index] = temp
                                             }
-                                        }
+                                        },
+                                        modifier = Modifier.size(32.dp)
                                     ) {
-                                        Text("Up")
+                                        Icon(Icons.Default.ArrowUpward, contentDescription = "Up", modifier = Modifier.size(16.dp))
                                     }
-                                    TextButton(
+                                    IconButton(
                                         enabled = index < order.lastIndex && !isSaving,
                                         onClick = {
                                             pageOrder = order.toMutableList().apply {
@@ -971,9 +1274,24 @@ private fun ReorderPagesDialog(
                                                 this[index + 1] = this[index]
                                                 this[index] = temp
                                             }
-                                        }
+                                        },
+                                        modifier = Modifier.size(32.dp)
                                     ) {
-                                        Text("Down")
+                                        Icon(Icons.Default.ArrowDownward, contentDescription = "Down", modifier = Modifier.size(16.dp))
+                                    }
+                                    IconButton(
+                                        enabled = order.size > 1 && !isSaving,
+                                        onClick = {
+                                            pageOrder = order.toMutableList().apply { removeAt(index) }
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Delete page",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
                                     }
                                 }
                             }
@@ -1013,6 +1331,7 @@ private fun ReorderPagesDialog(
         }
     )
 }
+
 
 private fun renderPdfThumbnail(context: Context, uri: Uri): Bitmap? {
     return try {
@@ -1194,7 +1513,10 @@ private fun reorderPdfPages(context: Context, targetUri: Uri, pageOrder: List<In
         val sourceFd = context.contentResolver.openFileDescriptor(targetUri, "r") ?: return false
         sourceFd.use { fd ->
             PdfRenderer(fd).use { renderer ->
-                if (renderer.pageCount != pageOrder.size) {
+                if (pageOrder.isEmpty() ||
+                    pageOrder.distinct().size != pageOrder.size ||
+                    pageOrder.any { it !in 0 until renderer.pageCount }
+                ) {
                     return false
                 }
                 var outputPageNumber = 0

@@ -61,6 +61,22 @@
     <string name="toast_pages_updated">Pages updated</string>
     <string name="toast_pages_update_failed">Could not update pages</string>
 
+    <string name="export_as">Export as</string>
+    <string name="export_png">PNG — all pages as separate images</string>
+    <string name="export_html">HTML — web page with embedded images</string>
+    <string name="export_docx">DOCX — Word document with page images</string>
+    <string name="exporting">Exporting…</string>
+    <string name="export_png_success">Pages saved to Downloads/PDFScanner</string>
+    <string name="export_html_success">HTML saved to Downloads/PDFScanner</string>
+    <string name="export_docx_success">DOCX saved to Downloads/PDFScanner</string>
+    <string name="export_failed">Export failed</string>
+    <string name="delete_page">Delete page</string>
+    <string name="merge_order_title">Merge Order</string>
+    <string name="merge_order_subtitle">Reorder PDFs before merging</string>
+    <string name="add_external_pdfs">Add External PDFs</string>
+    <string name="external_pdf_label">External PDF</string>
+    <string name="merge_position">%1$d</string>
+
     <string name="file_name_template">File Name Template</string>
     <string name="file_name_template_description">Set the default name for scanned PDFs. Tap tokens below to insert them at the cursor.</string>
     <string name="file_name_pattern">File name pattern</string>
