@@ -18,6 +18,7 @@ import java.io.IOException
 data class SavedPdf(
     val name: String,
     val uri: Uri,
+    val isExternal: Boolean = false,
 )
 
 object PdfStorage {
