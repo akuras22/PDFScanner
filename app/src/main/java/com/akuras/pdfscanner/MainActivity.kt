@@ -196,6 +196,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         updateDownloadReceiver = null
+        thumbnailCache.evictAll()
         super.onDestroy()
     }
 
@@ -1026,14 +1027,10 @@ private fun renderPdfThumbnail(context: Context, uri: Uri): Bitmap? {
     }
 }
 
-private fun getCachedThumbnail(key: String): Bitmap? = synchronized(thumbnailCache) {
-    thumbnailCache.get(key)
-}
+private fun getCachedThumbnail(key: String): Bitmap? = thumbnailCache.get(key)
 
 private fun putCachedThumbnail(key: String, bitmap: Bitmap) {
-    synchronized(thumbnailCache) {
-        thumbnailCache.put(key, bitmap)
-    }
+    thumbnailCache.put(key, bitmap)
 }
 
 private fun getPdfPageOrder(context: Context, uri: Uri): List<Int> {
