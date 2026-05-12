@@ -115,8 +115,6 @@ private const val PAGE_ASPECT_RATIO = 0.707f
 private const val PAGE_PREVIEW_WIDTH_PX = 220
 private const val MIN_PAGE_DIMENSION_PX = 1
 private const val THUMBNAIL_CACHE_MAX_ENTRIES = 80
-private val thumbnailDispatcher = Dispatchers.IO.limitedParallelism(2)
-private val thumbnailCache = LruCache<String, Bitmap>(THUMBNAIL_CACHE_MAX_ENTRIES)
 
 class MainActivity : ComponentActivity() {
 
@@ -196,7 +194,6 @@ class MainActivity : ComponentActivity() {
             }
         }
         updateDownloadReceiver = null
-        thumbnailCache.evictAll()
         super.onDestroy()
     }
 
@@ -495,6 +492,8 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
     val config = LocalConfiguration.current
     val isWide = config.screenWidthDp > 600
     val columns = if (isWide) 2 else 1
+    val thumbnailDispatcher = remember { Dispatchers.IO.limitedParallelism(2) }
+    val thumbnailCache = remember { LruCache<String, Bitmap>(THUMBNAIL_CACHE_MAX_ENTRIES) }
     val mergeCandidates = (items + externalMergeItems).distinctBy { it.uri.toString() }
     val displayedItems = if (mergeMode) mergeCandidates else items
     val externalPicker = rememberLauncherForActivityResult(
@@ -662,6 +661,8 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
                         selectionMode = mergeMode,
                         isSelected = selectedMergeUris.contains(item.uri.toString()),
                         thumbnailSeed = thumbnailSeed,
+                        thumbnailDispatcher = thumbnailDispatcher,
+                        thumbnailCache = thumbnailCache,
                         onToggleSelected = {
                             val key = item.uri.toString()
                             selectedMergeUris = if (selectedMergeUris.contains(key)) {
@@ -693,19 +694,19 @@ private fun PdfHistoryCard(
     selectionMode: Boolean = false,
     isSelected: Boolean = false,
     thumbnailSeed: Int = 0,
+    thumbnailDispatcher: kotlinx.coroutines.CoroutineDispatcher,
+    thumbnailCache: LruCache<String, Bitmap>,
     onToggleSelected: () -> Unit = {},
     onDeleted: (Uri) -> Unit,
     onReordered: () -> Unit,
 ) {
     val context = LocalContext.current
     val thumbnailKey = remember(item.uri, thumbnailSeed) { "${item.uri}#$thumbnailSeed" }
-    val thumbnail by produceState<Bitmap?>(initialValue = getCachedThumbnail(thumbnailKey), thumbnailKey) {
+    val thumbnail by produceState<Bitmap?>(initialValue = thumbnailCache.get(thumbnailKey), thumbnailKey) {
         if (value == null) {
-            value = withContext(thumbnailDispatcher) {
-                getCachedThumbnail(thumbnailKey) ?: renderPdfThumbnail(context, item.uri)?.also {
-                    putCachedThumbnail(thumbnailKey, it)
-                }
-            }
+            val rendered = withContext(thumbnailDispatcher) { renderPdfThumbnail(context, item.uri) }
+            if (rendered != null) thumbnailCache.put(thumbnailKey, rendered)
+            value = rendered
         }
     }
     val thumbnailWidth = if (isWide) 100.dp else 80.dp
@@ -1027,11 +1028,6 @@ private fun renderPdfThumbnail(context: Context, uri: Uri): Bitmap? {
     }
 }
 
-private fun getCachedThumbnail(key: String): Bitmap? = thumbnailCache.get(key)
-
-private fun putCachedThumbnail(key: String, bitmap: Bitmap) {
-    thumbnailCache.put(key, bitmap)
-}
 
 private fun getPdfPageOrder(context: Context, uri: Uri): List<Int> {
     return try {
