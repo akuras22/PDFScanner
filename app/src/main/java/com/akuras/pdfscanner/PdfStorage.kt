@@ -12,6 +12,7 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import android.widget.Toast
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -21,11 +22,20 @@ import java.util.zip.ZipOutputStream
 
 /** Render PDF pages at this multiple of their native size to preserve quality (~216 DPI). */
 private const val RENDER_SCALE = 3
+private const val TAG = "PdfStorage"
+
+enum class PdfSortOrder {
+    DATE_DESC,
+    NAME_ASC,
+    SIZE_DESC,
+}
 
 data class SavedPdf(
     val name: String,
     val uri: Uri,
     val isExternal: Boolean = false,
+    val sizeBytes: Long = 0L,
+    val dateAdded: Long = 0L,
 )
 
 object PdfStorage {
@@ -56,35 +66,72 @@ object PdfStorage {
                 put(MediaStore.MediaColumns.IS_PENDING, 0)
             }, null, null)
             destinationUri
-        } catch (_: IOException) {
+        } catch (e: IOException) {
+            Log.e(TAG, "Failed to save scanned PDF", e)
             resolver.delete(destinationUri, null, null)
             null
         }
     }
 
-    fun querySavedPdfs(context: Context): List<SavedPdf> {
+    fun querySavedPdfs(context: Context, sortOrder: PdfSortOrder = PdfSortOrder.DATE_DESC): List<SavedPdf> {
         val resolver = context.contentResolver
         val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val items = mutableListOf<SavedPdf>()
-        resolver.query(
-            collection,
-            arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME),
-            "${MediaStore.MediaColumns.MIME_TYPE}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?",
-            arrayOf("application/pdf", "${Environment.DIRECTORY_DOWNLOADS}/PDFScanner/"),
-            "${MediaStore.MediaColumns.DATE_ADDED} DESC"
-        )?.use { cursor ->
-            val idIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
-            val nameIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idIdx)
-                val name = cursor.getString(nameIdx) ?: "scan_$id.pdf"
-                items += SavedPdf(
-                    name = name,
-                    uri = ContentUris.withAppendedId(collection, id)
-                )
+        val sort = when (sortOrder) {
+            PdfSortOrder.DATE_DESC -> "${MediaStore.MediaColumns.DATE_ADDED} DESC"
+            PdfSortOrder.NAME_ASC -> "${MediaStore.MediaColumns.DISPLAY_NAME} COLLATE NOCASE ASC"
+            PdfSortOrder.SIZE_DESC -> "${MediaStore.MediaColumns.SIZE} DESC"
+        }
+        try {
+            resolver.query(
+                collection,
+                arrayOf(
+                    MediaStore.MediaColumns._ID,
+                    MediaStore.MediaColumns.DISPLAY_NAME,
+                    MediaStore.MediaColumns.SIZE,
+                    MediaStore.MediaColumns.DATE_ADDED
+                ),
+                "${MediaStore.MediaColumns.MIME_TYPE}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?",
+                arrayOf("application/pdf", "${Environment.DIRECTORY_DOWNLOADS}/PDFScanner/"),
+                sort
+            )?.use { cursor ->
+                val idIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                val nameIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+                val sizeIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
+                val dateIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idIdx)
+                    val name = cursor.getString(nameIdx) ?: "scan_$id.pdf"
+                    items += SavedPdf(
+                        name = name,
+                        uri = ContentUris.withAppendedId(collection, id),
+                        sizeBytes = cursor.getLong(sizeIdx),
+                        dateAdded = cursor.getLong(dateIdx)
+                    )
+                }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to query saved PDFs", e)
         }
         return items
+    }
+
+    fun renamePdf(context: Context, uri: Uri, newNameRaw: String): Boolean {
+        val newName = newNameRaw.trim().let { if (it.endsWith(".pdf", true)) it else "$it.pdf" }
+        if (newName.isBlank()) return false
+        return try {
+            context.contentResolver.update(
+                uri,
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, newName)
+                },
+                null,
+                null
+            ) > 0
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to rename PDF $uri", e)
+            false
+        }
     }
 
     fun mergePdfsToDownloads(context: Context, sourceUris: List<Uri>, pattern: String): Uri? {
@@ -121,7 +168,8 @@ object PdfStorage {
                 put(MediaStore.MediaColumns.IS_PENDING, 0)
             }, null, null)
             destinationUri
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to merge PDFs", e)
             resolver.delete(destinationUri, null, null)
             null
         } finally {
@@ -133,7 +181,8 @@ object PdfStorage {
         if (pageOrder.isEmpty()) return false
         val tempFile = try {
             File.createTempFile("reordered_", ".pdf", context.cacheDir)
-        } catch (_: IOException) {
+        } catch (e: IOException) {
+            Log.e(TAG, "Failed to create temp file for reordering", e)
             return false
         }
         val document = PdfDocument()
@@ -142,13 +191,11 @@ object PdfStorage {
             val sourceFd = context.contentResolver.openFileDescriptor(targetUri, "r") ?: return false
             sourceFd.use { fd ->
                 PdfRenderer(fd).use { renderer ->
-                    if (pageOrder.isEmpty() ||
-                        pageOrder.distinct().size != pageOrder.size ||
-                        pageOrder.any { it !in 0 until renderer.pageCount }
-                    ) return false
+                    if (pageOrder.distinct().size != pageOrder.size || pageOrder.any { it !in 0 until renderer.pageCount }) {
+                        return false
+                    }
                     var outputPageNumber = 0
                     pageOrder.forEach { sourcePageIndex ->
-                        if (sourcePageIndex !in 0 until renderer.pageCount) return false
                         renderer.openPage(sourcePageIndex).use { page ->
                             val width = maxOf(page.width, 1)
                             val height = maxOf(page.height, 1)
@@ -171,7 +218,8 @@ object PdfStorage {
                 tempFile.inputStream().use { input -> input.copyTo(output) }
             } ?: return false
             true
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to reorder PDF pages", e)
             false
         } finally {
             document.close()
@@ -184,8 +232,41 @@ object PdfStorage {
             context.contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
                 PdfRenderer(fd).use { renderer -> List(renderer.pageCount) { it } }
             } ?: emptyList()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read PDF page order", e)
             emptyList()
+        }
+    }
+
+    fun countPdfPages(context: Context, uri: Uri): Int? {
+        return try {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
+                PdfRenderer(fd).use { it.pageCount }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to count PDF pages", e)
+            null
+        }
+    }
+
+    fun renderPdfPage(context: Context, uri: Uri, pageIndex: Int, width: Int = 900): Bitmap? {
+        return try {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
+                PdfRenderer(fd).use { renderer ->
+                    if (pageIndex !in 0 until renderer.pageCount) return null
+                    renderer.openPage(pageIndex).use { page ->
+                        val clampedWidth = maxOf(width, 1)
+                        val height = (clampedWidth * page.height.toFloat() / maxOf(page.width, 1)).toInt().coerceAtLeast(1)
+                        Bitmap.createBitmap(clampedWidth, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+                            bitmap.eraseColor(Color.WHITE)
+                            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to render PDF page", e)
+            null
         }
     }
 
@@ -196,7 +277,7 @@ object PdfStorage {
                     if (renderer.pageCount == 0) return null
                     renderer.openPage(0).use { page ->
                         val width = 300
-                        val height = (width * page.height.toFloat() / page.width).toInt()
+                        val height = (width * page.height.toFloat() / maxOf(page.width, 1)).toInt().coerceAtLeast(1)
                         Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
                             bitmap.eraseColor(Color.WHITE)
                             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
@@ -204,7 +285,8 @@ object PdfStorage {
                     }
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to render PDF thumbnail", e)
             null
         }
     }
@@ -219,6 +301,31 @@ object PdfStorage {
         context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_pdf_chooser)))
     }
 
+    fun sharePdfs(context: Context, items: List<SavedPdf>) {
+        if (items.isEmpty()) return
+        val uris = ArrayList(items.map { it.uri })
+        val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "application/pdf"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_pdf_chooser)))
+    }
+
+    fun copyPdfToUri(context: Context, sourceUri: Uri, destinationUri: Uri): Boolean {
+        return try {
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                context.contentResolver.openOutputStream(destinationUri, "wt")?.use { output ->
+                    input.copyTo(output)
+                    true
+                }
+            } ?: false
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to copy PDF via SAF", e)
+            false
+        }
+    }
+
     fun openPdf(context: Context, uri: Uri) {
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/pdf")
@@ -226,7 +333,8 @@ object PdfStorage {
         }
         try {
             context.startActivity(Intent.createChooser(intent, context.getString(R.string.open_pdf_chooser)))
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open PDF", e)
             Toast.makeText(context, R.string.no_pdf_app, Toast.LENGTH_SHORT).show()
         }
     }
@@ -234,7 +342,8 @@ object PdfStorage {
     fun deletePdf(context: Context, uri: Uri): Boolean {
         return try {
             context.contentResolver.delete(uri, null, null) > 0
-        } catch (_: SecurityException) {
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Failed to delete PDF", e)
             false
         }
     }
@@ -258,6 +367,7 @@ object PdfStorage {
                             bitmap.eraseColor(Color.WHITE)
                             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
                             val imgName = "${baseName}_page${pageIndex + 1}.png"
+                            val imgUri = resolver.insert(
                                 MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
                                 ContentValues().apply {
                                     put(MediaStore.MediaColumns.DISPLAY_NAME, imgName)
@@ -282,7 +392,8 @@ object PdfStorage {
                 }
             }
             count
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to export PDF as PNG", e)
             if (count > 0) count else -1
         }
     }
@@ -338,7 +449,8 @@ object PdfStorage {
                 put(MediaStore.MediaColumns.IS_PENDING, 0)
             }, null, null)
             true
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to export PDF as HTML", e)
             false
         }
     }
@@ -381,23 +493,22 @@ object PdfStorage {
 
             resolver.openOutputStream(docxUri)?.use { output ->
                 ZipOutputStream(output).use { zip ->
-                    // [Content_Types].xml
                     zip.putNextEntry(ZipEntry("[Content_Types].xml"))
                     zip.write(buildContentTypesXml().toByteArray(Charsets.UTF_8))
                     zip.closeEntry()
-                    // _rels/.rels
+
                     zip.putNextEntry(ZipEntry("_rels/.rels"))
                     zip.write(buildRootRelsXml().toByteArray(Charsets.UTF_8))
                     zip.closeEntry()
-                    // word/_rels/document.xml.rels
+
                     zip.putNextEntry(ZipEntry("word/_rels/document.xml.rels"))
                     zip.write(buildDocRelsXml(pageBitmaps.size).toByteArray(Charsets.UTF_8))
                     zip.closeEntry()
-                    // word/document.xml
+
                     zip.putNextEntry(ZipEntry("word/document.xml"))
                     zip.write(buildDocumentXml(pageBitmaps).toByteArray(Charsets.UTF_8))
                     zip.closeEntry()
-                    // word/media/pageN.png
+
                     pageBitmaps.forEachIndexed { i, bitmap ->
                         zip.putNextEntry(ZipEntry("word/media/page${i + 1}.png"))
                         val baos = ByteArrayOutputStream()
@@ -412,7 +523,8 @@ object PdfStorage {
                 put(MediaStore.MediaColumns.IS_PENDING, 0)
             }, null, null)
             true
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to export PDF as DOCX", e)
             false
         }
     }
@@ -443,8 +555,8 @@ object PdfStorage {
     }
 
     private fun buildDocumentXml(pages: List<Bitmap>): String = buildString {
-        val maxWidthEmu = 5_486_400L // ~6 inches at 914 400 EMU/inch
-        val pixToEmu = 9525L       // 96 dpi: 1 px = 914400/96 EMU
+        val maxWidthEmu = 5_486_400L
+        val pixToEmu = 9525L
         append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
         append("<w:document")
         append(" xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"")
@@ -516,7 +628,8 @@ object PdfStorage {
                     }
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to append PDF pages from $sourceUri", e)
         }
         return pageNumber
     }

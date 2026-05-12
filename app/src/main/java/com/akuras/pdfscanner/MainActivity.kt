@@ -158,10 +158,11 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            PDFScannerTheme {
+            PDFScannerTheme(darkTheme = resolveDarkTheme(this@MainActivity, loadThemeMode(this@MainActivity))) {
                 var refreshTrigger by rememberSaveable { mutableIntStateOf(0) }
                 var availableUpdate by remember { mutableStateOf<AvailableUpdate?>(null) }
                 var updateCheckDone by rememberSaveable { mutableStateOf(false) }
+                var showOnboarding by rememberSaveable { mutableStateOf(shouldShowOnboarding(this@MainActivity)) }
                 onScanComplete = { refreshTrigger++ }
 
                 LaunchedEffect(Unit) {
@@ -186,8 +187,26 @@ class MainActivity : ComponentActivity() {
                         }
                     )
                 }
+                if (showOnboarding) {
+                    AlertDialog(
+                        onDismissRequest = {
+                            markOnboardingSeen(this@MainActivity)
+                            showOnboarding = false
+                        },
+                        title = { Text(getString(R.string.onboarding_title)) },
+                        text = { Text(getString(R.string.onboarding_text)) },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                markOnboardingSeen(this@MainActivity)
+                                showOnboarding = false
+                            }) {
+                                Text(getString(R.string.got_it))
+                            }
+                        }
+                    )
+                }
 
-                ScannerScreen(
+                com.akuras.pdfscanner.ScannerScreen(
                     refreshTrigger = refreshTrigger,
                     onScanClick = { startScan() },
                     onSettingsClick = { startActivity(Intent(this, SettingsActivity::class.java)) },
@@ -1712,4 +1731,18 @@ private fun getCurrentVersionName(context: Context): String {
     } catch (_: PackageManager.NameNotFoundException) {
         ""
     }
+}
+
+private const val KEY_ONBOARDING_SEEN = "onboarding_seen"
+
+private fun shouldShowOnboarding(context: Context): Boolean {
+    return !context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .getBoolean(KEY_ONBOARDING_SEEN, false)
+}
+
+private fun markOnboardingSeen(context: Context) {
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putBoolean(KEY_ONBOARDING_SEEN, true)
+        .apply()
 }
