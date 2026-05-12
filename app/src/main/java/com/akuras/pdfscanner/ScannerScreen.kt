@@ -446,6 +446,111 @@ private fun PdfHistoryCard(
 }
 
 @Composable
+private fun ScannerExportDialog(
+    item: SavedPdf,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isExporting by remember { mutableStateOf(false) }
+    val baseName = remember(item.name) {
+        item.name.removeSuffix(".pdf").take(60).ifBlank { "export" }
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!isExporting) onDismiss() },
+        title = { Text(stringResource(R.string.export_as)) },
+        text = {
+            if (isExporting) {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(stringResource(R.string.saving))
+                    }
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ScannerExportOption(label = stringResource(R.string.export_png)) {
+                        scope.launch {
+                            isExporting = true
+                            val count = withContext(Dispatchers.IO) {
+                                PdfStorage.exportPdfAsPngs(context, item.uri, baseName)
+                            }
+                            isExporting = false
+                            Toast.makeText(
+                                context,
+                                if (count > 0) {
+                                    context.getString(R.string.export_png_success)
+                                } else {
+                                    context.getString(R.string.export_failed)
+                                },
+                                Toast.LENGTH_LONG
+                            ).show()
+                            onDismiss()
+                        }
+                    }
+                    ScannerExportOption(label = stringResource(R.string.export_html)) {
+                        scope.launch {
+                            isExporting = true
+                            val ok = withContext(Dispatchers.IO) {
+                                PdfStorage.exportPdfAsHtml(context, item.uri, baseName)
+                            }
+                            isExporting = false
+                            Toast.makeText(
+                                context,
+                                if (ok) {
+                                    context.getString(R.string.export_html_success)
+                                } else {
+                                    context.getString(R.string.export_failed)
+                                },
+                                Toast.LENGTH_LONG
+                            ).show()
+                            onDismiss()
+                        }
+                    }
+                    ScannerExportOption(label = stringResource(R.string.export_docx)) {
+                        scope.launch {
+                            isExporting = true
+                            val ok = withContext(Dispatchers.IO) {
+                                PdfStorage.exportPdfAsDocx(context, item.uri, baseName)
+                            }
+                            isExporting = false
+                            Toast.makeText(
+                                context,
+                                if (ok) {
+                                    context.getString(R.string.export_docx_success)
+                                } else {
+                                    context.getString(R.string.export_failed)
+                                },
+                                Toast.LENGTH_LONG
+                            ).show()
+                            onDismiss()
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isExporting) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun ScannerExportOption(label: String, onClick: () -> Unit) {
+    androidx.compose.material3.OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
 private fun ReorderPagesDialog(
     item: SavedPdf,
     onDismiss: () -> Unit,
