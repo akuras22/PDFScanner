@@ -52,6 +52,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -94,12 +95,7 @@ fun ScannerScreen(
     onSettingsClick: () -> Unit,
     historyViewModel: HistoryViewModel = viewModel(),
 ) {
-    val background = Brush.verticalGradient(
-        colors = listOf(
-            MaterialTheme.colorScheme.surfaceContainer,
-            MaterialTheme.colorScheme.surface
-        )
-    )
+    val background = MaterialTheme.colorScheme.surface
     val context = LocalContext.current
     val uiState = historyViewModel.uiState
 
@@ -126,42 +122,20 @@ fun ScannerScreen(
                 }
             )
         },
-        bottomBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.surface.copy(alpha = 0f),
-                                MaterialTheme.colorScheme.surface
-                            )
-                        )
-                    )
-                    .padding(horizontal = 24.dp, vertical = 16.dp)
-                    .navigationBarsPadding(),
-                contentAlignment = Alignment.Center
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = onScanClick,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.navigationBarsPadding()
             ) {
-                Button(
-                    onClick = onScanClick,
-                    modifier = Modifier
-                        .widthIn(max = 500.dp)
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(28.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                ) {
-                    Icon(
-                        Icons.Default.CameraAlt,
-                        contentDescription = null,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(stringResource(R.string.scan_document), style = MaterialTheme.typography.titleMedium)
-                }
+                Icon(
+                    Icons.Default.CameraAlt,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(stringResource(R.string.scan_document), style = MaterialTheme.typography.titleMedium)
             }
         }
     ) { padding ->

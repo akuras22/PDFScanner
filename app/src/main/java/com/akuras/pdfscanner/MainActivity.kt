@@ -135,6 +135,14 @@ class MainActivity : ComponentActivity() {
     private var updateDownloadId: Long? = null
     private var updateDownloadReceiver: BroadcastReceiver? = null
 
+    private val settingsLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_THEME_CHANGED) {
+            recreate()
+        }
+    }
+
     private val scannerLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
@@ -209,7 +217,7 @@ class MainActivity : ComponentActivity() {
                 com.akuras.pdfscanner.ScannerScreen(
                     refreshTrigger = refreshTrigger,
                     onScanClick = { startScan() },
-                    onSettingsClick = { startActivity(Intent(this, SettingsActivity::class.java)) },
+                    onSettingsClick = { settingsLauncher.launch(Intent(this, SettingsActivity::class.java)) },
                 )
             }
         }
@@ -421,9 +429,6 @@ private fun UpdateAvailableDialog(
         }
     )
 }
-
-@Composable
-private fun ScannerScreen(
     refreshTrigger: Int,
     onScanClick: () -> Unit,
     onSettingsClick: () -> Unit,
