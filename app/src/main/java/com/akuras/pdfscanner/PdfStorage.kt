@@ -483,7 +483,7 @@ object PdfStorage {
         append("</w:body></w:document>")
     }
 
-
+    private fun appendPdfPages(
         context: Context,
         targetDocument: PdfDocument,
         sourceUri: Uri,

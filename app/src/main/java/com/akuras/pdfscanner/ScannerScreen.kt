@@ -446,6 +446,99 @@ private fun PdfHistoryCard(
 }
 
 @Composable
+private fun ScannerExportDialog(
+    item: SavedPdf,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isExporting by remember { mutableStateOf(false) }
+    val baseName = remember(item.name) {
+        item.name.removeSuffix(".pdf").take(60).ifBlank { "export" }
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!isExporting) onDismiss() },
+        title = { Text(stringResource(R.string.export_as)) },
+        text = {
+            if (isExporting) {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(stringResource(R.string.saving))
+                    }
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ScannerExportOption(label = "PNG — all pages as separate images") {
+                        scope.launch {
+                            isExporting = true
+                            val count = withContext(Dispatchers.IO) {
+                                PdfStorage.exportPdfAsPngs(context, item.uri, baseName)
+                            }
+                            isExporting = false
+                            Toast.makeText(
+                                context,
+                                if (count > 0) "Pages saved to Downloads/PDFScanner" else "Export failed",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            onDismiss()
+                        }
+                    }
+                    ScannerExportOption(label = "HTML — web page with embedded images") {
+                        scope.launch {
+                            isExporting = true
+                            val ok = withContext(Dispatchers.IO) {
+                                PdfStorage.exportPdfAsHtml(context, item.uri, baseName)
+                            }
+                            isExporting = false
+                            Toast.makeText(
+                                context,
+                                if (ok) "HTML saved to Downloads/PDFScanner" else "Export failed",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            onDismiss()
+                        }
+                    }
+                    ScannerExportOption(label = "DOCX — Word document with page images") {
+                        scope.launch {
+                            isExporting = true
+                            val ok = withContext(Dispatchers.IO) {
+                                PdfStorage.exportPdfAsDocx(context, item.uri, baseName)
+                            }
+                            isExporting = false
+                            Toast.makeText(
+                                context,
+                                if (ok) "DOCX saved to Downloads/PDFScanner" else "Export failed",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            onDismiss()
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isExporting) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun ScannerExportOption(label: String, onClick: () -> Unit) {
+    androidx.compose.material3.OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
 private fun ReorderPagesDialog(
     item: SavedPdf,
     onDismiss: () -> Unit,
