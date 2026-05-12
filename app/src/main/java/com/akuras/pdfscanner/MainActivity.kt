@@ -107,8 +107,11 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 private const val PAGE_ASPECT_RATIO = 0.707f
@@ -494,6 +497,7 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
     val columns = if (isWide) 2 else 1
     val thumbnailDispatcher = remember { Dispatchers.IO.limitedParallelism(2) }
     val thumbnailCache = remember { LruCache<String, Bitmap>(THUMBNAIL_CACHE_MAX_ENTRIES) }
+    val thumbnailRenderMutex = remember { Mutex() }
     val mergeCandidates = (items + externalMergeItems).distinctBy { it.uri.toString() }
     val displayedItems = if (mergeMode) mergeCandidates else items
     val externalPicker = rememberLauncherForActivityResult(
@@ -663,6 +667,7 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
                         thumbnailSeed = thumbnailSeed,
                         thumbnailDispatcher = thumbnailDispatcher,
                         thumbnailCache = thumbnailCache,
+                        thumbnailRenderMutex = thumbnailRenderMutex,
                         onToggleSelected = {
                             val key = item.uri.toString()
                             selectedMergeUris = if (selectedMergeUris.contains(key)) {
@@ -694,8 +699,9 @@ private fun PdfHistoryCard(
     selectionMode: Boolean = false,
     isSelected: Boolean = false,
     thumbnailSeed: Int = 0,
-    thumbnailDispatcher: kotlinx.coroutines.CoroutineDispatcher,
+    thumbnailDispatcher: CoroutineDispatcher,
     thumbnailCache: LruCache<String, Bitmap>,
+    thumbnailRenderMutex: Mutex,
     onToggleSelected: () -> Unit = {},
     onDeleted: (Uri) -> Unit,
     onReordered: () -> Unit,
@@ -704,9 +710,13 @@ private fun PdfHistoryCard(
     val thumbnailKey = remember(item.uri, thumbnailSeed) { "${item.uri}#$thumbnailSeed" }
     val thumbnail by produceState<Bitmap?>(initialValue = thumbnailCache.get(thumbnailKey), thumbnailKey) {
         if (value == null) {
-            val rendered = withContext(thumbnailDispatcher) { renderPdfThumbnail(context, item.uri) }
-            if (rendered != null) thumbnailCache.put(thumbnailKey, rendered)
-            value = rendered
+            value = withContext(thumbnailDispatcher) {
+                thumbnailRenderMutex.withLock {
+                    thumbnailCache.get(thumbnailKey) ?: renderPdfThumbnail(context, item.uri)?.also {
+                        thumbnailCache.put(thumbnailKey, it)
+                    }
+                }
+            }
         }
     }
     val thumbnailWidth = if (isWide) 100.dp else 80.dp
