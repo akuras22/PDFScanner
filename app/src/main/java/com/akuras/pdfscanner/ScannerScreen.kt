@@ -1,5 +1,6 @@
 package com.akuras.pdfscanner
 
+import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -8,6 +9,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,7 +40,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.MenuOpen
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -62,6 +64,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -199,6 +202,36 @@ private fun HistoryPanel(
     val selectedCount = uiState.selectedMergeUris.size
     var renameTarget by remember { mutableStateOf<SavedPdf?>(null) }
     var previewTarget by remember { mutableStateOf<SavedPdf?>(null) }
+    var showMergePreview by remember { mutableStateOf(false) }
+    var externalMergeItems by remember { mutableStateOf(listOf<SavedPdf>()) }
+    val scope = rememberCoroutineScope()
+    val externalPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        val resolver = context.contentResolver
+        val startIndex = externalMergeItems.size + 1
+        val added = uris.mapIndexed { index, uri ->
+            try {
+                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) {
+                android.util.Log.w("HistoryPanel", "Failed to persist read permission for $uri", e)
+            }
+            SavedPdf(
+                name = queryPdfDisplayName(context, uri) ?: "External PDF ${startIndex + index}",
+                uri = uri,
+                isExternal = true,
+            )
+        }
+        externalMergeItems = (externalMergeItems + added).distinctBy { it.uri.toString() }
+        // Auto-select newly added external PDFs
+        val newKeys = added.map { it.uri.toString() }
+        newKeys.forEach { key ->
+            if (!uiState.selectedMergeUris.contains(key)) {
+                onToggleSelection(android.net.Uri.parse(key))
+            }
+        }
+    }
 
     if (renameTarget != null) {
         RenamePdfDialog(
@@ -214,6 +247,37 @@ private fun HistoryPanel(
         PdfPreviewDialog(
             item = previewTarget!!,
             onDismiss = { previewTarget = null }
+        )
+    }
+
+    // Merge preview dialog
+    if (showMergePreview) {
+        val selectedItems = uiState.allItems.filter { 
+            uiState.selectedMergeUris.contains(it.uri.toString()) 
+        } + externalMergeItems.filter {
+            uiState.selectedMergeUris.contains(it.uri.toString())
+        }
+        val uniqueItems = selectedItems.distinctBy { it.uri.toString() }
+        MergePreviewDialog(
+            orderedItems = uniqueItems,
+            onDismiss = { showMergePreview = false },
+            onConfirm = { confirmedItems ->
+                showMergePreview = false
+                val mergeUris = confirmedItems.map { it.uri }
+                scope.launch {
+                    val pattern = loadFileNamePattern(context)
+                    val merged = withContext(Dispatchers.IO) {
+                        PdfStorage.mergePdfsToDownloads(context, mergeUris, pattern)
+                    }
+                    if (merged != null) {
+                        Toast.makeText(context, "PDFs merged", Toast.LENGTH_SHORT).show()
+                        onToggleMergeMode()
+                        externalMergeItems = emptyList()
+                    } else {
+                        Toast.makeText(context, "Merge failed", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
         )
     }
 
@@ -237,22 +301,24 @@ private fun HistoryPanel(
                     )
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                IconButton(onClick = onToggleSearch) {
-                    Icon(
-                        Icons.Default.Search,
-                        contentDescription = stringResource(R.string.search_documents),
-                        tint = if (showSearch) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            if (!uiState.mergeMode) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IconButton(onClick = onToggleSearch) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = stringResource(R.string.search_documents),
+                            tint = if (showSearch) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    SortDropdown(
+                        currentSort = uiState.sortOrder,
+                        onSortSelected = onSetSort
                     )
                 }
-                SortDropdown(
-                    currentSort = uiState.sortOrder,
-                    onSortSelected = onSetSort
-                )
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
-        if (showSearch) {
+        if (showSearch && !uiState.mergeMode) {
             OutlinedTextField(
                 value = uiState.searchQuery,
                 onValueChange = onSetSearch,
@@ -264,43 +330,96 @@ private fun HistoryPanel(
             )
             Spacer(modifier = Modifier.height(8.dp))
         }
-        Spacer(modifier = Modifier.height(12.dp))
-        if (uiState.items.isNotEmpty()) {
-            Row(
+        
+        // Compact merge mode action bar
+        if (uiState.mergeMode) {
+            Surface(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Button(onClick = onToggleMergeMode) {
-                    Text(stringResource(if (uiState.mergeMode) R.string.cancel_merge else R.string.merge_pdfs))
-                }
-                if (uiState.mergeMode) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = stringResource(R.string.selected_count, selectedCount),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        "$selectedCount selected",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
-                    Button(
-                        enabled = selectedCount >= 2 && !uiState.isMerging,
-                        onClick = { onMergeSelected(loadFileNamePattern(context)) }
-                    ) {
-                        Text(stringResource(if (uiState.isMerging) R.string.merging else R.string.merge_selected))
-                    }
-                    Button(
-                        enabled = selectedCount >= 1,
-                        onClick = onShareSelected
-                    ) {
-                        Text(stringResource(R.string.share_selected))
-                    }
-                    Button(
-                        enabled = selectedCount >= 1,
-                        onClick = onDeleteSelected
-                    ) {
-                        Text(stringResource(R.string.delete_selected))
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        IconButton(
+                            onClick = { externalPicker.launch(arrayOf("application/pdf")) },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Description,
+                                contentDescription = "Add External",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onShareSelected,
+                            enabled = selectedCount >= 1,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Share,
+                                contentDescription = "Share",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onDeleteSelected,
+                            enabled = selectedCount >= 1,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete",
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        IconButton(
+                            onClick = { 
+                                if (selectedCount >= 2) showMergePreview = true 
+                            },
+                            enabled = selectedCount >= 2 && !uiState.isMerging,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = "Merge",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { 
+                                onToggleMergeMode()
+                                externalMergeItems = emptyList()
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Cancel",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+        } else if (uiState.items.isNotEmpty()) {
+            Button(onClick = onToggleMergeMode) {
+                Text(stringResource(R.string.merge_pdfs))
+            }
+            Spacer(modifier = Modifier.height(8.dp))
         }
 
         if (uiState.items.isEmpty()) {
@@ -410,6 +529,7 @@ private fun SortDropdown(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun PdfHistoryCard(
     item: SavedPdf,
@@ -526,9 +646,16 @@ private fun PdfHistoryCard(
                         )
                     }
                 }
-                .clickable {
-                    if (selectionMode) onToggleSelected() else onPreview(item)
-                },
+                .combinedClickable(
+                    onClick = {
+                        if (selectionMode) onToggleSelected() else onPreview(item)
+                    },
+                    onLongClick = {
+                        if (!selectionMode) {
+                            onToggleSelected()
+                        }
+                    }
+                ),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             shape = RoundedCornerShape(16.dp)
         ) {
@@ -604,7 +731,7 @@ private fun PdfHistoryCard(
                         onClick = { showReorderDialog = true },
                         modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.Default.MenuOpen, contentDescription = stringResource(R.string.pages), modifier = Modifier.size(18.dp))
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = stringResource(R.string.pages), modifier = Modifier.size(18.dp))
                     }
                     FilledTonalIconButton(
                         onClick = { onRename(item) },
@@ -906,7 +1033,7 @@ private fun PdfPreviewDialog(
             ) {
                 Text(stringResource(R.string.preview))
                 TextButton(onClick = { PdfStorage.openPdf(context, item.uri) }) {
-                    Icon(Icons.Default.MenuOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Open", style = MaterialTheme.typography.labelMedium)
                 }
@@ -977,6 +1104,100 @@ private fun PdfPreviewDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.close))
+            }
+        }
+    )
+}
+
+@Composable
+private fun MergePreviewDialog(
+    orderedItems: List<SavedPdf>,
+    onDismiss: () -> Unit,
+    onConfirm: (List<SavedPdf>) -> Unit,
+) {
+    var items by remember { mutableStateOf(orderedItems) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Merge Order") },
+        text = {
+            Column {
+                Text(
+                    "Reorder PDFs before merging",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(320.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    itemsIndexed(items) { index, pdf ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${index + 1}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = pdf.name,
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            IconButton(
+                                onClick = {
+                                    if (index > 0) {
+                                        items = items.toMutableList().apply {
+                                            val tmp = this[index - 1]; this[index - 1] = this[index]; this[index] = tmp
+                                        }
+                                    }
+                                },
+                                enabled = index > 0,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.ArrowUpward, contentDescription = "Up", modifier = Modifier.size(16.dp))
+                            }
+                            IconButton(
+                                onClick = {
+                                    if (index < items.lastIndex) {
+                                        items = items.toMutableList().apply {
+                                            val tmp = this[index + 1]; this[index + 1] = this[index]; this[index] = tmp
+                                        }
+                                    }
+                                },
+                                enabled = index < items.lastIndex,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.ArrowDownward, contentDescription = "Down", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(items) }) {
+                Text("Merge")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
             }
         }
     )

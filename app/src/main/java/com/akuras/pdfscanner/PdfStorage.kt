@@ -640,3 +640,22 @@ object PdfStorage {
         return pageNumber
     }
 }
+
+fun queryPdfDisplayName(context: Context, uri: Uri): String? {
+    return try {
+        context.contentResolver.query(
+            uri,
+            arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val nameIdx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (nameIdx < 0) return@use null
+            cursor.getString(nameIdx)
+        }
+    } catch (_: Exception) {
+        null
+    }
+}

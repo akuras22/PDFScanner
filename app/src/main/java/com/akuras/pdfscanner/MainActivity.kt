@@ -1587,24 +1587,7 @@ private fun querySavedPdfs(context: Context): List<SavedPdf> {
     return items
 }
 
-private fun queryPdfDisplayName(context: Context, uri: Uri): String? {
-    return try {
-        context.contentResolver.query(
-            uri,
-            arrayOf(OpenableColumns.DISPLAY_NAME),
-            null,
-            null,
-            null
-        )?.use { cursor ->
-            if (!cursor.moveToFirst()) return@use null
-            val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (nameIdx < 0) return@use null
-            cursor.getString(nameIdx)
-        }
-    } catch (_: Exception) {
-        null
-    }
-}
+
 
 private fun sharePdf(context: Context, uri: Uri, name: String) {
     val intent = Intent(Intent.ACTION_SEND).apply {
