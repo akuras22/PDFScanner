@@ -15,10 +15,13 @@ import kotlinx.coroutines.withContext
 
 data class HistoryUiState(
     val items: List<SavedPdf> = emptyList(),
+    val allItems: List<SavedPdf> = emptyList(),
     val mergeMode: Boolean = false,
     val isMerging: Boolean = false,
     val selectedMergeUris: Set<String> = emptySet(),
     val thumbnailSeed: Int = 0,
+    val sortOrder: PdfSortOrder = PdfSortOrder.DATE_DESC,
+    val searchQuery: String = "",
 )
 
 class HistoryViewModel(application: Application) : AndroidViewModel(application) {
@@ -35,16 +38,31 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
 
     fun refresh() {
         viewModelScope.launch {
-            val items = withContext(Dispatchers.IO) {
-                PdfStorage.querySavedPdfs(appContext)
+            val allItems = withContext(Dispatchers.IO) {
+                PdfStorage.querySavedPdfs(appContext, uiState.sortOrder)
             }
+            val visibleItems = applySearch(allItems, uiState.searchQuery)
             uiState = uiState.copy(
-                items = items,
+                allItems = allItems,
+                items = visibleItems,
                 selectedMergeUris = uiState.selectedMergeUris.filterTo(mutableSetOf()) { selected ->
-                    items.any { it.uri.toString() == selected }
+                    allItems.any { it.uri.toString() == selected }
                 }
             )
         }
+    }
+
+    fun setSearchQuery(query: String) {
+        uiState = uiState.copy(
+            searchQuery = query,
+            items = applySearch(uiState.allItems, query)
+        )
+    }
+
+    fun setSortOrder(order: PdfSortOrder) {
+        if (order == uiState.sortOrder) return
+        uiState = uiState.copy(sortOrder = order)
+        refresh()
     }
 
     fun toggleMergeMode() {
@@ -67,7 +85,7 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
         if (uiState.selectedMergeUris.size < 2 || uiState.isMerging) return
         viewModelScope.launch {
             uiState = uiState.copy(isMerging = true)
-            val mergeUris = uiState.items
+            val mergeUris = uiState.allItems
                 .filter { uiState.selectedMergeUris.contains(it.uri.toString()) }
                 .map { it.uri }
             val merged = withContext(Dispatchers.IO) {
@@ -88,6 +106,50 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun shareSelected() {
+        val selected = uiState.allItems.filter { uiState.selectedMergeUris.contains(it.uri.toString()) }
+        if (selected.isEmpty()) return
+        PdfStorage.sharePdfs(appContext, selected)
+    }
+
+    fun deleteSelected() {
+        val uris = uiState.selectedMergeUris.map(Uri::parse)
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            var successCount = 0
+            withContext(Dispatchers.IO) {
+                uris.forEach { uri ->
+                    if (PdfStorage.deletePdf(appContext, uri)) successCount++
+                }
+            }
+            if (successCount > 0) {
+                _messages.emit(R.string.toast_deleted)
+                uiState = uiState.copy(
+                    selectedMergeUris = emptySet(),
+                    mergeMode = false,
+                    thumbnailSeed = uiState.thumbnailSeed + 1
+                )
+                refresh()
+            } else {
+                _messages.emit(R.string.toast_delete_failed)
+            }
+        }
+    }
+
+    fun rename(uri: Uri, newName: String) {
+        viewModelScope.launch {
+            val renamed = withContext(Dispatchers.IO) {
+                PdfStorage.renamePdf(appContext, uri, newName)
+            }
+            if (renamed) {
+                _messages.emit(R.string.toast_renamed)
+                refresh()
+            } else {
+                _messages.emit(R.string.toast_rename_failed)
+            }
+        }
+    }
+
     fun delete(uri: Uri) {
         viewModelScope.launch {
             val deleted = withContext(Dispatchers.IO) {
@@ -95,6 +157,7 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
             }
             if (deleted) {
                 uiState = uiState.copy(
+                    allItems = uiState.allItems.filterNot { it.uri == uri },
                     items = uiState.items.filterNot { it.uri == uri },
                     selectedMergeUris = uiState.selectedMergeUris - uri.toString(),
                     thumbnailSeed = uiState.thumbnailSeed + 1
@@ -116,5 +179,9 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
                 _messages.emit(R.string.toast_pages_update_failed)
             }
         }
+    }
+
+    private fun applySearch(items: List<SavedPdf>, query: String): List<SavedPdf> {
+        return filterPdfsByQuery(items, query)
     }
 }

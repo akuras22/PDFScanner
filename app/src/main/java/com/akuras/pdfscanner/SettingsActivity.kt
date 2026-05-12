@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -37,6 +38,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
@@ -52,10 +54,14 @@ class SettingsActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            PDFScannerTheme {
+            val context = LocalContext.current
+            val selectedMode = loadThemeMode(context)
+            PDFScannerTheme(darkTheme = resolveDarkTheme(context, selectedMode)) {
                 SettingsScreen(
                     initialPattern = loadFileNamePattern(this),
                     onPatternChanged = { saveFileNamePattern(this, it) },
+                    initialThemeMode = selectedMode,
+                    onThemeModeChanged = { saveThemeMode(this, it) },
                     onBack = { finish() }
                 )
             }
@@ -85,11 +91,14 @@ private val timeTokens = listOf(
 private fun SettingsScreen(
     initialPattern: String,
     onPatternChanged: (String) -> Unit,
+    initialThemeMode: ThemeMode,
+    onThemeModeChanged: (ThemeMode) -> Unit,
     onBack: () -> Unit,
 ) {
     var textFieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(initialPattern, TextRange(initialPattern.length)))
     }
+    var themeMode by rememberSaveable { mutableStateOf(initialThemeMode.name) }
 
     Scaffold(
         topBar = {
@@ -135,6 +144,29 @@ private fun SettingsScreen(
                     label = { Text(stringResource(R.string.file_name_pattern)) },
                     singleLine = true
                 )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(stringResource(R.string.theme_mode), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ThemeMode.entries.forEach { mode ->
+                        OutlinedButton(
+                            onClick = {
+                                themeMode = mode.name
+                                onThemeModeChanged(mode)
+                            }
+                        ) {
+                            Text(
+                                when (mode) {
+                                    ThemeMode.SYSTEM -> stringResource(R.string.theme_system)
+                                    ThemeMode.LIGHT -> stringResource(R.string.theme_light)
+                                    ThemeMode.DARK -> stringResource(R.string.theme_dark)
+                                } + if (themeMode == mode.name) " ✓" else ""
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -214,7 +246,14 @@ private fun SettingsScreen(
 
 const val PREFS_NAME = "pdfscanner_prefs"
 const val KEY_FILE_PATTERN = "file_name_pattern"
+const val KEY_THEME_MODE = "theme_mode"
 const val DEFAULT_PATTERN = "scan_{yyyy}{MM}{dd}_{HH}{mm}{ss}"
+
+enum class ThemeMode {
+    SYSTEM,
+    LIGHT,
+    DARK,
+}
 
 fun loadFileNamePattern(context: Context): String {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -226,6 +265,30 @@ fun saveFileNamePattern(context: Context, pattern: String) {
         .edit()
         .putString(KEY_FILE_PATTERN, pattern)
         .apply()
+}
+
+fun loadThemeMode(context: Context): ThemeMode {
+    val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .getString(KEY_THEME_MODE, ThemeMode.SYSTEM.name)
+    return ThemeMode.entries.firstOrNull { it.name == raw } ?: ThemeMode.SYSTEM
+}
+
+fun saveThemeMode(context: Context, mode: ThemeMode) {
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(KEY_THEME_MODE, mode.name)
+        .apply()
+}
+
+fun resolveDarkTheme(context: Context, mode: ThemeMode): Boolean {
+    return when (mode) {
+        ThemeMode.SYSTEM -> {
+            val nightModeFlags = context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+            nightModeFlags == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        }
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
 }
 
 fun resolveFileName(pattern: String): String {

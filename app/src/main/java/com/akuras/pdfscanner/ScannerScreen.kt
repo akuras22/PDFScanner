@@ -1,8 +1,9 @@
 package com.akuras.pdfscanner
 
-import android.content.Context
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -35,7 +36,9 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -45,10 +48,16 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -56,8 +65,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -164,10 +175,15 @@ fun ScannerScreen(
         ) {
             HistoryPanel(
                 uiState = uiState,
+                onSetSearch = historyViewModel::setSearchQuery,
+                onSetSort = historyViewModel::setSortOrder,
                 onToggleMergeMode = historyViewModel::toggleMergeMode,
                 onToggleSelection = historyViewModel::toggleSelection,
                 onMergeSelected = { pattern -> historyViewModel.mergeSelected(pattern) },
+                onShareSelected = historyViewModel::shareSelected,
+                onDeleteSelected = historyViewModel::deleteSelected,
                 onDelete = historyViewModel::delete,
+                onRename = historyViewModel::rename,
                 onReordered = historyViewModel::onReordered,
                 modifier = Modifier
                     .widthIn(max = 900.dp)
@@ -178,13 +194,19 @@ fun ScannerScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HistoryPanel(
     uiState: HistoryUiState,
+    onSetSearch: (String) -> Unit,
+    onSetSort: (PdfSortOrder) -> Unit,
     onToggleMergeMode: () -> Unit,
     onToggleSelection: (Uri) -> Unit,
     onMergeSelected: (String) -> Unit,
+    onShareSelected: () -> Unit,
+    onDeleteSelected: () -> Unit,
     onDelete: (Uri) -> Unit,
+    onRename: (Uri, String) -> Unit,
     onReordered: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -193,6 +215,45 @@ private fun HistoryPanel(
     val isWide = config.screenWidthDp > 600
     val columns = if (isWide) 2 else 1
     val selectedCount = uiState.selectedMergeUris.size
+    var renameTarget by remember { mutableStateOf<SavedPdf?>(null) }
+    var previewTarget by remember { mutableStateOf<SavedPdf?>(null) }
+    var backupTarget by remember { mutableStateOf<SavedPdf?>(null) }
+    val scope = rememberCoroutineScope()
+    val backupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri ->
+        val target = backupTarget
+        if (uri != null && target != null) {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    PdfStorage.copyPdfToUri(context, target.uri, uri)
+                }
+                Toast.makeText(
+                    context,
+                    if (ok) context.getString(R.string.toast_backup_success) else context.getString(R.string.toast_backup_failed),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+        backupTarget = null
+    }
+
+    if (renameTarget != null) {
+        RenamePdfDialog(
+            item = renameTarget!!,
+            onDismiss = { renameTarget = null },
+            onRename = { newName ->
+                onRename(renameTarget!!.uri, newName)
+                renameTarget = null
+            }
+        )
+    }
+    if (previewTarget != null) {
+        PdfPreviewDialog(
+            item = previewTarget!!,
+            onDismiss = { previewTarget = null }
+        )
+    }
 
     Column(modifier = modifier.fillMaxSize().animateContentSize()) {
         Text(
@@ -206,6 +267,50 @@ private fun HistoryPanel(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        OutlinedTextField(
+            value = uiState.searchQuery,
+            onValueChange = onSetSearch,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            label = { Text(stringResource(R.string.search_documents)) },
+            leadingIcon = { Icon(Icons.Default.FindInPage, contentDescription = null) }
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        var sortExpanded by rememberSaveable { mutableStateOf(false) }
+        ExposedDropdownMenuBox(
+            expanded = sortExpanded,
+            onExpandedChange = { sortExpanded = !sortExpanded }
+        ) {
+            OutlinedTextField(
+                value = when (uiState.sortOrder) {
+                    PdfSortOrder.DATE_DESC -> stringResource(R.string.sort_date)
+                    PdfSortOrder.NAME_ASC -> stringResource(R.string.sort_name)
+                    PdfSortOrder.SIZE_DESC -> stringResource(R.string.sort_size)
+                },
+                onValueChange = {},
+                readOnly = true,
+                label = { Text(stringResource(R.string.sort_by)) },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sortExpanded) },
+                modifier = Modifier
+                    .menuAnchor()
+                    .fillMaxWidth()
+            )
+            ExposedDropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.sort_date)) },
+                    onClick = { onSetSort(PdfSortOrder.DATE_DESC); sortExpanded = false }
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.sort_name)) },
+                    onClick = { onSetSort(PdfSortOrder.NAME_ASC); sortExpanded = false }
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.sort_size)) },
+                    onClick = { onSetSort(PdfSortOrder.SIZE_DESC); sortExpanded = false }
+                )
+            }
         }
         Spacer(modifier = Modifier.height(12.dp))
         if (uiState.items.isNotEmpty()) {
@@ -228,6 +333,18 @@ private fun HistoryPanel(
                         onClick = { onMergeSelected(loadFileNamePattern(context)) }
                     ) {
                         Text(stringResource(if (uiState.isMerging) R.string.merging else R.string.merge_selected))
+                    }
+                    Button(
+                        enabled = selectedCount >= 1,
+                        onClick = onShareSelected
+                    ) {
+                        Text(stringResource(R.string.share_selected))
+                    }
+                    Button(
+                        enabled = selectedCount >= 1,
+                        onClick = onDeleteSelected
+                    ) {
+                        Text(stringResource(R.string.delete_selected))
                     }
                 }
             }
@@ -277,6 +394,12 @@ private fun HistoryPanel(
                         thumbnailSeed = uiState.thumbnailSeed,
                         onToggleSelected = { onToggleSelection(item.uri) },
                         onDeleted = onDelete,
+                        onRename = { renameTarget = it },
+                        onPreview = { previewTarget = it },
+                        onBackup = {
+                            backupTarget = it
+                            backupLauncher.launch(it.name)
+                        },
                         onReordered = onReordered
                     )
                 }
@@ -294,11 +417,16 @@ private fun PdfHistoryCard(
     thumbnailSeed: Int = 0,
     onToggleSelected: () -> Unit = {},
     onDeleted: (Uri) -> Unit,
+    onRename: (SavedPdf) -> Unit,
+    onPreview: (SavedPdf) -> Unit,
+    onBackup: (SavedPdf) -> Unit,
     onReordered: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val thumbnail = remember(item.uri, thumbnailSeed) { PdfStorage.renderPdfThumbnail(context, item.uri) }
+    val pageCount by produceState<Int?>(initialValue = null, item.uri) {
+        value = withContext(Dispatchers.IO) { PdfStorage.countPdfPages(context, item.uri) }
+    }
     val thumbnailWidth = if (isWide) 100.dp else 80.dp
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showReorderDialog by remember { mutableStateOf(false) }
@@ -348,7 +476,7 @@ private fun PdfHistoryCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable {
-                if (selectionMode) onToggleSelected() else PdfStorage.openPdf(context, item.uri)
+                if (selectionMode) onToggleSelected() else onPreview(item)
             },
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(16.dp)
@@ -402,13 +530,23 @@ private fun PdfHistoryCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = stringResource(
+                        R.string.file_meta,
+                        formatSize(item.sizeBytes),
+                        pageCount?.toString() ?: "-"
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     FilledTonalIconButton(
-                        onClick = { PdfStorage.openPdf(context, item.uri) },
+                        onClick = { onPreview(item) },
                         modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = stringResource(R.string.open), modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.FindInPage, contentDescription = stringResource(R.string.preview), modifier = Modifier.size(18.dp))
                     }
                     FilledTonalIconButton(
                         onClick = { PdfStorage.sharePdf(context, item.uri, item.name) },
@@ -420,7 +558,19 @@ private fun PdfHistoryCard(
                         onClick = { showReorderDialog = true },
                         modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = stringResource(R.string.pages), modifier = Modifier.size(18.dp))
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = stringResource(R.string.pages), modifier = Modifier.size(18.dp))
+                    }
+                    FilledTonalIconButton(
+                        onClick = { onRename(item) },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.rename), modifier = Modifier.size(18.dp))
+                    }
+                    FilledTonalIconButton(
+                        onClick = { onBackup(item) },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(Icons.Default.FileDownload, contentDescription = stringResource(R.string.backup_export), modifier = Modifier.size(18.dp))
                     }
                     FilledTonalIconButton(
                         onClick = { showExportDialog = true },
@@ -614,6 +764,18 @@ private fun ReorderPagesDialog(
                                     ) {
                                         Text(stringResource(R.string.down))
                                     }
+                                    IconButton(
+                                        enabled = order.size > 1 && !isSaving,
+                                        onClick = {
+                                            pageOrder = order.toMutableList().apply { removeAt(index) }
+                                        }
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = stringResource(R.string.delete_page),
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -646,4 +808,104 @@ private fun ReorderPagesDialog(
             }
         }
     )
+}
+
+@Composable
+private fun RenamePdfDialog(
+    item: SavedPdf,
+    onDismiss: () -> Unit,
+    onRename: (String) -> Unit,
+) {
+    var value by remember(item.uri) { mutableStateOf(item.name.removeSuffix(".pdf")) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.rename)) },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                singleLine = true,
+                label = { Text(stringResource(R.string.file_name_pattern)) }
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onRename(value) }, enabled = value.isNotBlank()) {
+                Text(stringResource(R.string.save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun PdfPreviewDialog(
+    item: SavedPdf,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    var page by remember(item.uri) { mutableStateOf(0) }
+    val pageCount by produceState<Int?>(initialValue = null, item.uri) {
+        value = withContext(Dispatchers.IO) { PdfStorage.countPdfPages(context, item.uri) }
+    }
+    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, item.uri, page) {
+        value = withContext(Dispatchers.IO) { PdfStorage.renderPdfPage(context, item.uri, page) }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.preview)) },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(380.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap!!.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
+                    } else {
+                        CircularProgressIndicator()
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(stringResource(R.string.page_x_of_y, page + 1, pageCount ?: 0))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { if (page > 0) page-- }, enabled = page > 0) { Text(stringResource(R.string.up)) }
+                    TextButton(
+                        onClick = { if (pageCount != null && page < pageCount!! - 1) page++ },
+                        enabled = pageCount != null && page < pageCount!! - 1
+                    ) { Text(stringResource(R.string.down)) }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.close))
+            }
+        }
+    )
+}
+
+private fun formatSize(bytes: Long): String {
+    if (bytes <= 0L) return "0 B"
+    val kb = 1024.0
+    val mb = kb * 1024.0
+    val gb = mb * 1024.0
+    return when {
+        bytes >= gb -> String.format("%.2f GB", bytes / gb)
+        bytes >= mb -> String.format("%.2f MB", bytes / mb)
+        bytes >= kb -> String.format("%.1f KB", bytes / kb)
+        else -> "$bytes B"
+    }
 }
