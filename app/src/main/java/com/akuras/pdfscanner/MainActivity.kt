@@ -788,9 +788,10 @@ private fun PdfHistoryCard(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
-                if (thumbnail != null) {
+                val thumbnailBitmap = thumbnail
+                if (thumbnailBitmap != null) {
                     Image(
-                        bitmap = thumbnail.asImageBitmap(),
+                        bitmap = thumbnailBitmap.asImageBitmap(),
                         contentDescription = "PDF preview",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
