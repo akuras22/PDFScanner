@@ -11,6 +11,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.pdf.PdfDocument
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -122,6 +123,8 @@ private const val PAGE_ASPECT_RATIO = 0.707f
 private const val PAGE_PREVIEW_WIDTH_PX = 220
 private const val MIN_PAGE_DIMENSION_PX = 1
 private const val THUMBNAIL_CACHE_MAX_ENTRIES = 80
+/** Render PDF pages at this multiple of their native size to preserve quality (~216 DPI). */
+private const val RENDER_SCALE = 3
 
 class MainActivity : ComponentActivity() {
 
@@ -1527,13 +1530,15 @@ private fun reorderPdfPages(context: Context, targetUri: Uri, pageOrder: List<In
                     renderer.openPage(sourcePageIndex).use { page ->
                         val width = maxOf(page.width, 1)
                         val height = maxOf(page.height, 1)
-                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        val bitmap = Bitmap.createBitmap(width * RENDER_SCALE, height * RENDER_SCALE, Bitmap.Config.ARGB_8888)
                         bitmap.eraseColor(Color.WHITE)
                         page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
                         val pageInfo = PdfDocument.PageInfo.Builder(width, height, outputPageNumber + 1).create()
                         val newPage = document.startPage(pageInfo)
                         newPage.canvas.drawColor(Color.WHITE)
-                        newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                        val matrix = Matrix()
+                        matrix.setScale(1f / RENDER_SCALE, 1f / RENDER_SCALE)
+                        newPage.canvas.drawBitmap(bitmap, matrix, null)
                         document.finishPage(newPage)
                         bitmap.recycle()
                         outputPageNumber++
@@ -1577,13 +1582,15 @@ private fun appendPdfPages(
                     renderer.openPage(pageIndex).use { page ->
                         val width = maxOf(page.width, 1)
                         val height = maxOf(page.height, 1)
-                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        val bitmap = Bitmap.createBitmap(width * RENDER_SCALE, height * RENDER_SCALE, Bitmap.Config.ARGB_8888)
                         bitmap.eraseColor(Color.WHITE)
                         page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
                         val pageInfo = PdfDocument.PageInfo.Builder(width, height, pageNumber + 1).create()
                         val newPage = targetDocument.startPage(pageInfo)
                         newPage.canvas.drawColor(Color.WHITE)
-                        newPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                        val matrix = Matrix()
+                        matrix.setScale(1f / RENDER_SCALE, 1f / RENDER_SCALE)
+                        newPage.canvas.drawBitmap(bitmap, matrix, null)
                         targetDocument.finishPage(newPage)
                         bitmap.recycle()
                         pageNumber++
