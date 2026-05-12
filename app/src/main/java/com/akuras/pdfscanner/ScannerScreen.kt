@@ -546,9 +546,10 @@ private fun PdfHistoryCard(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
-                if (thumbnail != null) {
+                val thumb = thumbnail
+                if (thumb != null) {
                     Image(
-                        bitmap = thumbnail.asImageBitmap(),
+                        bitmap = thumb.asImageBitmap(),
                         contentDescription = stringResource(R.string.pdf_preview),
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -991,4 +992,5 @@ private fun formatSize(bytes: Long): String {
         bytes >= kb -> String.format("%.1f KB", bytes / kb)
         else -> "$bytes B"
     }
+}
 }
