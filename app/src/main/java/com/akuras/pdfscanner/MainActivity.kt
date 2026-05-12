@@ -427,20 +427,8 @@ private fun UpdateAvailableDialog(
                 androidx.compose.material3.Text(stringResource(R.string.later))
             }
         }
-    )
+)
 }
-    refreshTrigger: Int,
-    onScanClick: () -> Unit,
-    onSettingsClick: () -> Unit,
-) {
-    val background = Brush.verticalGradient(
-        colors = listOf(
-            MaterialTheme.colorScheme.surfaceContainer,
-            MaterialTheme.colorScheme.surface
-        )
-    )
-
-    Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {

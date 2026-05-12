@@ -5,8 +5,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-
-const val RESULT_THEME_CHANGED = 100
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -310,3 +308,5 @@ fun resolveFileName(pattern: String): String {
         .replace("{mm}", now.format(DateTimeFormatter.ofPattern("mm")))
         .replace("{ss}", now.format(DateTimeFormatter.ofPattern("ss")))
 }
+
+const val RESULT_THEME_CHANGED = 100
