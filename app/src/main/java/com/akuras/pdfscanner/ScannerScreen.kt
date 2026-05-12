@@ -30,9 +30,12 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -41,6 +44,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -293,10 +297,12 @@ private fun PdfHistoryCard(
     onReordered: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val thumbnail = remember(item.uri, thumbnailSeed) { PdfStorage.renderPdfThumbnail(context, item.uri) }
     val thumbnailWidth = if (isWide) 100.dp else 80.dp
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showReorderDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
 
     if (showDeleteDialog) {
         AlertDialog(
@@ -328,6 +334,13 @@ private fun PdfHistoryCard(
                 onReordered(true)
             },
             onFailed = { onReordered(false) }
+        )
+    }
+
+    if (showExportDialog) {
+        ScannerExportDialog(
+            item = item,
+            onDismiss = { showExportDialog = false }
         )
     }
 
@@ -403,8 +416,17 @@ private fun PdfHistoryCard(
                     ) {
                         Icon(Icons.Default.Share, contentDescription = stringResource(R.string.share), modifier = Modifier.size(18.dp))
                     }
-                    TextButton(onClick = { showReorderDialog = true }, modifier = Modifier.height(40.dp)) {
-                        Text(stringResource(R.string.pages))
+                    FilledTonalIconButton(
+                        onClick = { showReorderDialog = true },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = stringResource(R.string.pages), modifier = Modifier.size(18.dp))
+                    }
+                    FilledTonalIconButton(
+                        onClick = { showExportDialog = true },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(Icons.Default.FileDownload, contentDescription = stringResource(R.string.export_as), modifier = Modifier.size(18.dp))
                     }
                     FilledTonalIconButton(
                         onClick = { showDeleteDialog = true },
