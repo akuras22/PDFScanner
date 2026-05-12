@@ -634,6 +634,7 @@ private fun PdfHistoryCard(
         }
     }
 }
+}
 
 @Composable
 private fun ScannerExportDialog(
