@@ -31,7 +31,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CameraAlt
@@ -39,12 +38,14 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.FindInPage
-import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.MenuOpen
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -75,6 +76,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -197,7 +199,6 @@ private fun HistoryPanel(
     val selectedCount = uiState.selectedMergeUris.size
     var renameTarget by remember { mutableStateOf<SavedPdf?>(null) }
     var previewTarget by remember { mutableStateOf<SavedPdf?>(null) }
-    var showSearch by remember { mutableStateOf(false) }
 
     if (renameTarget != null) {
         RenamePdfDialog(
@@ -423,7 +424,9 @@ private fun PdfHistoryCard(
     onReordered: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
-    val thumbnail = remember(item.uri, thumbnailSeed) { PdfStorage.renderPdfThumbnail(context, item.uri) }
+    val thumbnail by produceState<android.graphics.Bitmap?>(initialValue = null, item.uri, thumbnailSeed) {
+        value = withContext(Dispatchers.IO) { PdfStorage.renderPdfThumbnail(context, item.uri) }
+    }
     val pageCount by produceState<Int?>(initialValue = null, item.uri) {
         value = withContext(Dispatchers.IO) { PdfStorage.countPdfPages(context, item.uri) }
     }
@@ -431,6 +434,7 @@ private fun PdfHistoryCard(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showReorderDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
+    var swipeOffset by remember { mutableStateOf(0f) }
 
     if (showDeleteDialog) {
         AlertDialog(
@@ -472,15 +476,62 @@ private fun PdfHistoryCard(
         )
     }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable {
-                if (selectionMode) onToggleSelected() else onPreview(item)
-            },
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(16.dp)
-    ) {
+    Box(modifier = Modifier.fillMaxWidth()) {
+        // Swipe-to-delete background
+        if (swipeOffset < -80 && !selectionMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(vertical = 4.dp)
+                    .background(MaterialTheme.colorScheme.error, RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Row(
+                    modifier = Modifier.padding(end = 24.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = stringResource(R.string.delete),
+                        tint = MaterialTheme.colorScheme.onError,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        stringResource(R.string.delete),
+                        color = MaterialTheme.colorScheme.onError,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer { translationX = swipeOffset }
+                .pointerInput(selectionMode) {
+                    if (!selectionMode) {
+                        detectHorizontalDragGestures(
+                            onDragEnd = {
+                                if (swipeOffset < -200) {
+                                    showDeleteDialog = true
+                                }
+                                swipeOffset = 0f
+                            },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                swipeOffset = (swipeOffset + dragAmount).coerceIn(-300f, 0f)
+                            }
+                        )
+                    }
+                }
+                .clickable {
+                    if (selectionMode) onToggleSelected() else onPreview(item)
+                },
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            shape = RoundedCornerShape(16.dp)
+        ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -552,7 +603,7 @@ private fun PdfHistoryCard(
                         onClick = { showReorderDialog = true },
                         modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = stringResource(R.string.pages), modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.MenuOpen, contentDescription = stringResource(R.string.pages), modifier = Modifier.size(18.dp))
                     }
                     FilledTonalIconButton(
                         onClick = { onRename(item) },
@@ -853,7 +904,7 @@ private fun PdfPreviewDialog(
             ) {
                 Text(stringResource(R.string.preview))
                 TextButton(onClick = { PdfStorage.openPdf(context, item.uri) }) {
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.MenuOpen, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Open", style = MaterialTheme.typography.labelMedium)
                 }
@@ -867,15 +918,22 @@ private fun PdfPreviewDialog(
                         .height(380.dp)
                         .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp))
                         .pointerInput(Unit) {
-                            detectHorizontalDragGestures { change, dragAmount ->
-                                change.consume()
-                                val count = pageCount
-                                if (dragAmount < -50 && count != null && page < count - 1) {
-                                    page++
-                                } else if (dragAmount > 50 && page > 0) {
-                                    page--
+                            var totalDrag = 0f
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    if (totalDrag < -120) {
+                                        val count = pageCount
+                                        if (count != null && page < count - 1) page++
+                                    } else if (totalDrag > 120) {
+                                        if (page > 0) page--
+                                    }
+                                    totalDrag = 0f
+                                },
+                                onHorizontalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    totalDrag += dragAmount
                                 }
-                            }
+                            )
                         },
                     contentAlignment = Alignment.Center
                 ) {
