@@ -471,7 +471,7 @@ private fun ScannerExportDialog(
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ScannerExportOption(label = "PNG — all pages as separate images") {
+                    ScannerExportOption(label = stringResource(R.string.export_png)) {
                         scope.launch {
                             isExporting = true
                             val count = withContext(Dispatchers.IO) {
@@ -480,13 +480,17 @@ private fun ScannerExportDialog(
                             isExporting = false
                             Toast.makeText(
                                 context,
-                                if (count > 0) "Pages saved to Downloads/PDFScanner" else "Export failed",
+                                if (count > 0) {
+                                    context.getString(R.string.export_png_success)
+                                } else {
+                                    context.getString(R.string.export_failed)
+                                },
                                 Toast.LENGTH_LONG
                             ).show()
                             onDismiss()
                         }
                     }
-                    ScannerExportOption(label = "HTML — web page with embedded images") {
+                    ScannerExportOption(label = stringResource(R.string.export_html)) {
                         scope.launch {
                             isExporting = true
                             val ok = withContext(Dispatchers.IO) {
@@ -495,13 +499,17 @@ private fun ScannerExportDialog(
                             isExporting = false
                             Toast.makeText(
                                 context,
-                                if (ok) "HTML saved to Downloads/PDFScanner" else "Export failed",
+                                if (ok) {
+                                    context.getString(R.string.export_html_success)
+                                } else {
+                                    context.getString(R.string.export_failed)
+                                },
                                 Toast.LENGTH_LONG
                             ).show()
                             onDismiss()
                         }
                     }
-                    ScannerExportOption(label = "DOCX — Word document with page images") {
+                    ScannerExportOption(label = stringResource(R.string.export_docx)) {
                         scope.launch {
                             isExporting = true
                             val ok = withContext(Dispatchers.IO) {
@@ -510,7 +518,11 @@ private fun ScannerExportDialog(
                             isExporting = false
                             Toast.makeText(
                                 context,
-                                if (ok) "DOCX saved to Downloads/PDFScanner" else "Export failed",
+                                if (ok) {
+                                    context.getString(R.string.export_docx_success)
+                                } else {
+                                    context.getString(R.string.export_failed)
+                                },
                                 Toast.LENGTH_LONG
                             ).show()
                             onDismiss()
