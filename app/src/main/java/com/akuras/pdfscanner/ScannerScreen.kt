@@ -75,6 +75,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -99,6 +100,7 @@ fun ScannerScreen(
     val background = MaterialTheme.colorScheme.surface
     val context = LocalContext.current
     val uiState = historyViewModel.uiState
+    var showSearch by remember { mutableStateOf(false) }
 
     LaunchedEffect(refreshTrigger) { historyViewModel.refresh() }
     LaunchedEffect(historyViewModel) {
@@ -864,10 +866,11 @@ private fun PdfPreviewDialog(
                         .fillMaxWidth()
                         .height(380.dp)
                         .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp))
-                        .pointerInput(pageCount) {
+                        .pointerInput(Unit) {
                             detectHorizontalDragGestures { change, dragAmount ->
                                 change.consume()
-                                if (dragAmount < -50 && pageCount != null && page < pageCount - 1) {
+                                val count = pageCount
+                                if (dragAmount < -50 && count != null && page < count - 1) {
                                     page++
                                 } else if (dragAmount > 50 && page > 0) {
                                     page--
