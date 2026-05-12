@@ -22,6 +22,7 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Log
+import android.util.LruCache
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -113,6 +114,9 @@ import kotlinx.coroutines.withContext
 private const val PAGE_ASPECT_RATIO = 0.707f
 private const val PAGE_PREVIEW_WIDTH_PX = 220
 private const val MIN_PAGE_DIMENSION_PX = 1
+private const val THUMBNAIL_CACHE_MAX_ENTRIES = 80
+private val thumbnailDispatcher = Dispatchers.IO.limitedParallelism(2)
+private val thumbnailCache = LruCache<String, Bitmap>(THUMBNAIL_CACHE_MAX_ENTRIES)
 
 class MainActivity : ComponentActivity() {
 
@@ -693,8 +697,15 @@ private fun PdfHistoryCard(
     onReordered: () -> Unit,
 ) {
     val context = LocalContext.current
-    val thumbnail by produceState<Bitmap?>(initialValue = null, item.uri, thumbnailSeed) {
-        value = withContext(Dispatchers.IO) { renderPdfThumbnail(context, item.uri) }
+    val thumbnailKey = remember(item.uri, thumbnailSeed) { "${item.uri}#$thumbnailSeed" }
+    val thumbnail by produceState<Bitmap?>(initialValue = getCachedThumbnail(thumbnailKey), thumbnailKey) {
+        if (value == null) {
+            value = withContext(thumbnailDispatcher) {
+                getCachedThumbnail(thumbnailKey) ?: renderPdfThumbnail(context, item.uri)?.also {
+                    putCachedThumbnail(thumbnailKey, it)
+                }
+            }
+        }
     }
     val thumbnailWidth = if (isWide) 100.dp else 80.dp
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -1012,6 +1023,16 @@ private fun renderPdfThumbnail(context: Context, uri: Uri): Bitmap? {
         bitmap
     } catch (_: Exception) {
         null
+    }
+}
+
+private fun getCachedThumbnail(key: String): Bitmap? = synchronized(thumbnailCache) {
+    thumbnailCache.get(key)
+}
+
+private fun putCachedThumbnail(key: String, bitmap: Bitmap) {
+    synchronized(thumbnailCache) {
+        thumbnailCache.put(key, bitmap)
     }
 }
 
