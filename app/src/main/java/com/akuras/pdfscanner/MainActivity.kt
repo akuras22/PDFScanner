@@ -30,7 +30,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -82,6 +81,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -522,7 +522,7 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
         }
     }
 
-    Column(modifier = modifier.fillMaxSize().animateContentSize()) {
+    Column(modifier = modifier.fillMaxSize()) {
         Text(
             text = "Saved PDFs",
             style = MaterialTheme.typography.headlineSmall,
@@ -537,63 +537,76 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
         }
         Spacer(modifier = Modifier.height(12.dp))
         if (items.isNotEmpty()) {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(
-                    onClick = {
-                        mergeMode = !mergeMode
-                        if (!mergeMode) {
-                            selectedMergeUris = emptySet()
-                            externalMergeItems = emptyList()
-                        }
-                    }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(if (mergeMode) "Cancel Merge" else "Merge PDFs")
-                }
-                if (mergeMode) {
-                    Text(
-                        text = "${selectedMergeUris.size} selected",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    OutlinedButton(
-                        enabled = !isMerging,
-                        onClick = {
-                            externalPicker.launch(arrayOf("application/pdf"))
-                        }
-                    ) {
-                        Text("Add External PDFs")
-                    }
                     Button(
-                        enabled = selectedMergeUris.size >= 2 && !isMerging,
                         onClick = {
-                            val mergeUris = mergeCandidates
-                                .filter { selectedMergeUris.contains(it.uri.toString()) }
-                                .map { it.uri }
-                            scope.launch {
-                                isMerging = true
-                                val pattern = loadFileNamePattern(context)
-                                val merged = withContext(Dispatchers.IO) {
-                                    mergePdfsToDownloads(context, mergeUris, pattern)
-                                }
-                                isMerging = false
-                                if (merged != null) {
-                                    Toast.makeText(context, "PDFs merged", Toast.LENGTH_SHORT).show()
-                                    items = querySavedPdfs(context)
-                                    mergeMode = false
-                                    selectedMergeUris = emptySet()
-                                    externalMergeItems = emptyList()
-                                    thumbnailSeed++
-                                } else {
-                                    Toast.makeText(context, "Merge failed", Toast.LENGTH_SHORT).show()
-                                }
+                            mergeMode = !mergeMode
+                            if (!mergeMode) {
+                                selectedMergeUris = emptySet()
+                                externalMergeItems = emptyList()
                             }
                         }
                     ) {
-                        Text(if (isMerging) "Merging..." else "Merge Selected")
+                        Text(if (mergeMode) "Cancel Merge" else "Merge PDFs")
+                    }
+                    if (mergeMode) {
+                        Text(
+                            text = "${selectedMergeUris.size} selected",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                if (mergeMode) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            enabled = !isMerging,
+                            onClick = {
+                                externalPicker.launch(arrayOf("application/pdf"))
+                            }
+                        ) {
+                            Text("Add External PDFs")
+                        }
+                        Button(
+                            modifier = Modifier.weight(1f),
+                            enabled = selectedMergeUris.size >= 2 && !isMerging,
+                            onClick = {
+                                val mergeUris = mergeCandidates
+                                    .filter { selectedMergeUris.contains(it.uri.toString()) }
+                                    .map { it.uri }
+                                scope.launch {
+                                    isMerging = true
+                                    val pattern = loadFileNamePattern(context)
+                                    val merged = withContext(Dispatchers.IO) {
+                                        mergePdfsToDownloads(context, mergeUris, pattern)
+                                    }
+                                    isMerging = false
+                                    if (merged != null) {
+                                        Toast.makeText(context, "PDFs merged", Toast.LENGTH_SHORT).show()
+                                        items = querySavedPdfs(context)
+                                        mergeMode = false
+                                        selectedMergeUris = emptySet()
+                                        externalMergeItems = emptyList()
+                                        thumbnailSeed++
+                                    } else {
+                                        Toast.makeText(context, "Merge failed", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        ) {
+                            Text(if (isMerging) "Merging..." else "Merge Selected")
+                        }
                     }
                 }
             }
@@ -629,6 +642,9 @@ private fun HistoryPanel(refreshTrigger: Int, modifier: Modifier = Modifier) {
             }
         } else {
             LazyVerticalGrid(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
                 columns = GridCells.Fixed(columns),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -677,7 +693,9 @@ private fun PdfHistoryCard(
     onReordered: () -> Unit,
 ) {
     val context = LocalContext.current
-    val thumbnail = remember(item.uri, thumbnailSeed) { renderPdfThumbnail(context, item.uri) }
+    val thumbnail by produceState<Bitmap?>(initialValue = null, item.uri, thumbnailSeed) {
+        value = withContext(Dispatchers.IO) { renderPdfThumbnail(context, item.uri) }
+    }
     val thumbnailWidth = if (isWide) 100.dp else 80.dp
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showReorderDialog by remember { mutableStateOf(false) }
