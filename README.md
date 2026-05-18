@@ -1,66 +1,51 @@
-# PDF Scanner Android App
+# PDF Scanner
 
-Starter Android app that scans documents, auto-crops/enhances them (via ML Kit), converts them to PDF, and saves PDFs on the user's device.
+Android app for scanning documents, turning them into PDFs, and managing saved files on-device.
 
-## Features
+## What it does
 
-- Document scanning with edge detection and auto-crop.
-- Automatic enhancement (color/contrast cleanup handled by scanner flow).
-- PDF output generation.
-- Save PDF to `Downloads/PDFScanner` on device.
-- Built-in `History` screen listing previously saved PDFs.
-- One-tap `Open` and `Delete` actions for every saved PDF.
-- One-tap `Share` action for every saved PDF.
-- Merge multiple saved PDFs into one merged file.
-- Reorder pages inside saved PDFs.
-- Tablet-compatible adaptive UI (phone and tablet layouts).
+- Scans documents using Google ML Kit.
+- Creates PDF files and saves them to `Downloads/PDFScanner`.
+- Includes history actions like open, share, delete, merge, and page reordering.
+- Supports phone and tablet layouts.
 
-## Tech Stack
+## Requirements
 
-- Kotlin
-- Jetpack Compose
-- Google ML Kit Document Scanner API (`play-services-mlkit-document-scanner`)
-- MediaStore for scoped-storage save
+- Android 14+ (min SDK 34)
+- Google Play services (for ML Kit scanner)
 
-## Project Structure
+## Install (from release)
 
-- `app/src/main/java/com/akuras/pdfscanner/MainActivity.kt`: scan flow + save to Downloads + adaptive UI.
-- `app/src/main/java/com/akuras/pdfscanner/ui/theme/*`: Compose theme setup.
-- `app/src/main/res/*`: manifest resources, themes, launcher icon assets.
+1. Open the [Releases](https://github.com/akuras22/PDFScanner/releases) page.
+2. Download the latest APK.
+3. Install it on your Android device.
 
-## Build And Run
+## Build from source
 
-1. Open this folder in Android Studio.
-2. Let Gradle sync.
-3. Run the `app` configuration on a phone/tablet emulator or real device.
+### Android Studio
 
-Notes:
+1. Open the project in Android Studio.
+2. Let Gradle sync finish.
+3. Run the `app` configuration on a device/emulator.
 
-- This app targets Android SDK 35 and min SDK 34 (Android 14+ only).
-- The scanner relies on Google Play services and works best on Play-enabled devices/emulators.
+### Command line
 
-## OTA Update Flow (GitHub Releases)
+```bash
+./gradlew assembleDebug
+```
 
-- On every pushed tag matching `v*` (or manual dispatch), GitHub Actions builds a release APK.
-- The workflow creates a GitHub Release for the pushed tag and uploads the APK asset.
-- App version values are controlled in Gradle (or via explicit CI properties when provided).
-- When the app opens, it checks the latest release from `akuras22/PDFScanner`.
-- If a higher version is available, the app shows an update dialog, downloads the latest release APK in-app, and launches the installer automatically.
+Debug APK output:
 
-## How It Works
+`app/build/outputs/apk/debug/app-debug.apk`
 
-1. User taps `Scan Document`.
-2. ML Kit scanner UI opens and handles detection, crop, and enhancement.
-3. Scanner returns a PDF `Uri`.
-4. App copies that PDF into MediaStore at `Downloads/PDFScanner/scan_YYYYMMDD_HHMMSS.pdf`.
+## How it works (high level)
 
-## Tablet Support
+- Uses ML Kit document scanning for capture, crop, and enhancement.
+- Produces PDF output from scanned content.
+- Stores files with Android MediaStore in `Downloads/PDFScanner`.
+- Provides a simple history view for managing saved PDFs.
 
-- The app uses window size classes and switches to a two-pane layout on wider screens.
+## Notes
 
-## Next Improvements
-
-- PDF list/history screen (load from app-indexed records).
-- Rename actions after save.
-- Optional per-page image export.
-- UI tests and instrumentation tests.
+- `compileSdk` / `targetSdk`: 35
+- Release APKs are built by GitHub Actions on tags matching `v*`.
